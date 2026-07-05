@@ -1,0 +1,79 @@
+Fullstack Developer - Python
+Dublin, Co. Dublin, Ireland
+Trending
+Job Description
+About Citco 
+
+Since the 1940s Citco has provided specialist financial services to alternative investment funds, investors, multinationals and private clients worldwide. With over 6,000 employees in 45 countries we pioneer innovative solutions that meet our clients’ evolving needs, and deliver exceptional service. Our continuous investment in learning means our people are among the best in the industry. And our corporate social responsibility programs provide meaningful and fulfilling work in the community. A career at Citco isn’t just a job – it’s an opportunity to excel in an environment that genuinely supports your personal and professional development.
+
+ 
+
+About the Role:
+
+We are currently looking for a Full Stack Developer with experience in Python, JavaScript Frameworks, AWS Cloud based solutions, Restful Web Services, and AI/Agentic development. Responsibilities will primarily include new functionality releases, development of enhancements, and contribution to system releases and third-level support as required. This position reports to the Middle Office Solutions IT Technical Lead. MOS IT team build, support and maintain proprietary custom built software platforms for the treasury, collateral and trade operations space, to assist the Middle office business team carry out their function.
+
+Responsibilities
+Job Duties in Brief:
+
+Develop new applications that serve existing software systems
+Further develop current software
+Development in multiple modules and architectures, according to development best practices and current development technologies
+Contribution to automated build process
+Systems documentation and knowledgebase management for support efficiencies
+Design and conduct tests
+Support users by developing documentation and assistance tools
+Design, build and deploy AI agents and agentic workflows to enhance platform capabilities
+Support continuous improvement by investigating alternatives and new technologies and presenting these for architectural review
+Explore opportunities to add value to job accomplishments
+Qualifications
+About You:
+
+2+ years Python application development experience (Backend language)
+FastAPI (Backend Framework)
+PostgreSQL (Database)
+Typescript (Frontend Language)
+React 18 (Frontend Framework)
+Code Generation Tools (Amazon Q, Co-pilot, Kiro)
+Material UI/MUI (Component Library)
+AWS Cloud Platform
+Hands-on experience with AWS Bedrock — model invocation, prompt engineering, and integration patterns
+Agentic AI development experience — designing and deploying autonomous or semi-autonomous AI agents
+Familiarity with agentic frameworks such as LangChain, Strands, or equivalent
+Understanding of LLM capabilities, limitations, and responsible AI practices
+Experience with test-driven development
+Proficient with APIs and service oriented architectures
+Ability to prioritize and multi-task in order to meet deadlines
+Can resolve technical issues through debugging, research and investigation
+Comfortable using Code Assistant tools e.g. AmazonQ/Co-pilot
+A team player who is effective working independently and collaboratively
+Must be self-motivated and driven, with strong analytical, problem solving, and communication skills
+B.S. degree in Computer Science, Computer Engineering or equivalent experience
+ 
+
+Nice to Have:
+
+Knowledge in architecting and implementing cloud-based applications
+AWS AgentCore — experience building, deploying, or managing agents via AgentCore
+Advanced Gen AI / Agentic AI experience (LangChain, Strands, AgentCore, LLMs)
+Good knowledge in Event driven applications
+Financial industry experience
+AG Grid (Advanced Data Grids)
+AG Charts (Data Visualization)
+Rsbuild (Build tool Rspack based)
+Module Federation (Micro-frontend architecture)
+Pydantic (Python Data Validation)
+JWT (Authentication)
+Docker (Containerization)
+ 
+
+What We Offer:
+
+A challenging and rewarding role in an award-winning global business
+Opportunities for personal and professional career development
+Great working environment, competitive salary and benefits, and opportunities for educational support
+Be part of an industry leading global team, renowned for excellence
+ 
+
+Confidentiality Assured
+
+Citco welcomes and encourages applications from people with disabilities. Accomodations are available on request for candidates taking part in all aspects of the selection process.
