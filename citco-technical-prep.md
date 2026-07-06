@@ -102,6 +102,8 @@ Use `functools.wraps` so the wrapper keeps the original's name/docstring.
 
 **🔧 Real example:** any custom decorator in the Django code (a permission check, a timing/logging wrapper)? Or just "`@login_required` and DRF's `@api_view` in the Django app."
 
+> **Rehearsed answer:** "A decorator like `@app.get("/documents")` wraps a function to add cross-cutting behaviour — in this case, registering it as a web endpoint. FastAPI handles parsing the request, validating data, calling the function, and serializing the response. Without the decorator, it's just a regular function — the decorator is what makes it a web route."
+
 ---
 
 ### Context managers
@@ -341,6 +343,37 @@ Being able to *compare* frameworks reads as senior. What transfers:
 
 ---
 
+## AUTH — JWT
+
+> Not on their original list, but it connects directly to the **front-end security (XSS/CSRF)** line above and to the **JWT auth** hop in your own architecture diagram below — likely to surface as a follow-up either way.
+
+### How JWT works
+
+A JWT is three base64url segments joined by dots: `header.payload.signature`.
+
+- **Header** — algorithm + token type (`HS256`, `RS256`, …).
+- **Payload** — claims: `exp` (expiry), a subject/user id, plus whatever custom claims you add. This is *encoded*, not encrypted — anyone can decode and read it, so never put secrets in the payload.
+- **Signature** — the part that actually protects it:
+  - **HS256** — HMAC with one shared secret; whoever signs and whoever verifies need the same secret.
+  - **RS256** — RSA keypair; the issuer signs with the **private** key, anyone holding the **public** key can verify but not forge.
+
+Verifying is just: recompute/check the signature, check `exp` hasn't passed — no DB lookup, no session store required. That's what "stateless" buys you: no shared session state, scales horizontally.
+
+**The tradeoff to name:** stateless means revocation is hard — you can't invalidate one token early without a server-side blocklist, because nothing is tracked at issue time. Short expiries + refresh tokens are the standard mitigation.
+
+**🔧 Real example — Montana runs two JWT layers, nested:**
+
+1. **Service-to-service:** the internal ORM-like client layer that talks HTTP to the central document service signs its requests with an **RS256** JWT — asymmetric, so only the auth side holds the private signing key and the document service just needs the public key to verify. Attached as `Authorization: Bearer <token>` on every call the client layer makes. Access tokens are long-lived (7 days), refresh tokens 30 days.
+2. **User-facing browser session:** each front-end app (e.g. the chamber-facing app, or a committee-management app) does its own login and issues its own JWT to the browser — **HS256**, signed with Django's `SECRET_KEY`, stored in an httponly cookie, ~12 hour expiry.
+
+**The nesting — this is the depth signal:** the browser-session JWT embeds the service-layer token *inside its own payload* as a claim. So when a logged-in user's browser hits a front-end app, middleware extracts that embedded claim and uses it to authenticate the ORM-like client's calls to the document service on the user's behalf — one JWT carrying another JWT, so the user's session transparently becomes a service credential without a second login.
+
+> **The line to say:** *"We actually run two JWT layers — a long-lived RS256 token between our internal ORM-like client and the central document service, and a shorter HS256 session token per front-end app for the browser. The session token embeds the service token as a claim, so a logged-in user's session carries the credential needed to authenticate into the document service without a second login."*
+
+**If pushed on hardening (don't volunteer, but be ready):** signing keys are static and committed in-repo rather than pulled from a secrets manager, and the service-to-service access token is long-lived (7 days) for what's normally a short-lived credential. Naming that unprompted as "what I'd change" reads as senior.
+
+---
+
 ## YOUR CURRENT PROJECT — the architecture answer
 
 > "Tell me about your current project" is near-certain, probably the first technical question. Deploy the 60-second version below, then **let their follow-ups pull the depth out of you** — depth that's extracted reads as real; depth that's dumped reads as rehearsed. **Never say the codenames** (Ascended, Joplin, APN) — use the plain-language names.
@@ -384,6 +417,8 @@ These are where "plain language, real problem" matters most. The interviewer isn
 
 > **🧰 Python topics in play:** **EXPLAIN ANALYZE** + **Indices** (the missing-index case) · Django ORM / **middleware** knowledge (N+1, `select_related`) · **Cache — in-memory vs Redis** (expensive computation / external calls) · **Background tasks (Celery)** (move slow work off the request) · **Concurrency** (a slow external call → make it async, or overlap several with threads).
 
+**Core to lead with (4):** measure first (Irish Life story) → N+1 → `select_related`/`prefetch_related` → over-fetching → paginate + select only needed columns (SaunaGuide story) → re-measure after. *(Cache/background-job/external-call branches: one-liners only, don't over-rehearse.)*
+
 1. **Measure first** — don't guess. Profile / log / APM to find where the time actually goes. (This is literally your Irish Life OLS story: you *measured method execution times* to find the bottleneck — reuse it.)
 2. Then match fix to cause:
    - **N+1 queries** → `select_related` / `prefetch_related` in Django (eager-load instead of one query per row). *(Day-job tie-in now woven into the rehearsed answer below; full story in the Django ORM section.)*
@@ -408,18 +443,29 @@ These are where "plain language, real problem" matters most. The interviewer isn
 >
 > *On the front end, the same problem needs a different toolkit: loading skeletons so the layout doesn't jump and the wait feels shorter, optimistic UI where the action is low-risk and reversible, client-side caching (React Query) so a repeat view doesn't refetch, pagination/infinite scroll so I'm never asking for more than the user can see, debounced search so I'm not firing a request per keystroke, and cancelling superseded requests so a slow earlier response can't overwrite a newer one that arrived first."*
 
+> **Follow-up: "What's the actual difference between `select_related` and `prefetch_related`, and why can't you use `select_related` for a many-to-many?"**
+>
+> *"`select_related` does a SQL JOIN and pulls the related row back in the same query — that only works for foreign key / one-to-one, where there's exactly one related row per row. `prefetch_related` runs a second query for the related set and stitches it back together in Python by key — needed for many-to-many or reverse FK, where a JOIN would multiply the base rows out one-per-match instead of returning them once each."*
+
 ### "We want a feature that generates a big report — what do you do?"
 
 > **🧰 Python topics in play:** **Background tasks (Celery / SQS)** — this *is* the answer, so the whole section is the toolbox · **Concurrency** (report gen is usually I/O-bound: DB reads + file writes → threads/async, not multiprocessing — unless it's CPU-heavy number-crunching, then a worker process) · **Cache** (cache the finished report so a re-request is instant) · **Databases** (run it against a **read replica** so it doesn't load the primary).
 
+**Core to lead with (4):** never in-request → offload to Celery, return `202` + job ID → poll/notify → store result in S3, hand back a presigned link → chunk with `.iterator()` so memory stays flat. *(Idempotency via the `Report` table + unique constraint: hold in reserve for the follow-up, don't cram into the opener.)*
+
+**Default answer:**
 - **Never generate it inside the request** — it'll block a worker and time out.
 - **Offload to a background job** (Celery / SQS). Return immediately with a job ID (`202 Accepted`).
 - Client **polls for status** or gets **notified** (websocket / email / webhook) when it's ready.
 - **Store the result** (a file / S3) and hand back a download link.
-- For very large data: **stream / paginate / generate in chunks** so you never hold it all in memory. Consider running it against a **read replica** so reporting doesn't load the primary DB.
+- For very large data: **stream / paginate / generate in chunks** so you never hold it all in memory.
 - **Front-end half:** never block the UI — disable the button to prevent double-submit, poll for job status (or subscribe), show progress, then surface a **download link** when it's ready.
 
-> **📝 My full answer (rehearsed):**
+**Only if probed further (double-submit / idempotency, read replica) — don't lead with these:**
+- Consider running the report query against a **read replica** so reporting doesn't load the primary DB.
+- **The `Report` table is the mechanism** behind idempotency *and* caching: a row per requested report — `user`, `params_hash`, `task_id`, `status`, `file_key`, `created_at`. On `POST`: hash the params, look up the row. In-flight → return its existing `task_id`. Done and data still fresh → return the download link, no job at all. No row → insert one and enqueue. A **unique constraint on `(user, params_hash)`** (scoped to active rows) closes the race where two simultaneous requests both find no row. This is your strongest depth point but a senior-signaling one — save it for the follow-up, don't cram it into the opener.
+
+> **📝 My full answer (rehearsed, mid-level pitch):**
 >
 > *"The one thing I'd never do is generate it inside the request — a big report will block a web worker and time out long before it finishes. This is really a background-jobs problem with a notification problem attached.*
 >
@@ -427,16 +473,24 @@ These are where "plain language, real problem" matters most. The interviewer isn
 > - *Before I parallelise anything, I make sure the report's queries are actually efficient — `EXPLAIN ANALYZE`, indexes on the filter paths, and select only the columns the report needs. On SaunaGuide I used `.values(...)` for exactly this reason — to stop Postgres pulling a heavy image blob on every row when I only needed three fields.*
 > - *Inside the worker I generate in chunks — iterate the queryset with `.iterator(chunk_size=...)` and write rows to the file as I go, so memory stays flat whether it's ten thousand rows or ten million. The user still gets one file; the chunking is invisible to them.*
 > - *Report generation is usually I/O-bound — DB reads and file writes — so if I need to overlap several independent queries I'd use threads or async inside the task. If it's genuinely CPU-heavy number-crunching, Celery's prefork pool is already multiprocessing, so I scale worker processes instead — true parallelism, no GIL issue across processes.*
-> - *If reporting load starts hurting live traffic, I point the report queries at a read replica — writes keep going to the primary, the replica absorbs the heavy reads. The one caveat I'd name is replication lag: fine for a report, wrong for read-your-own-write flows.*
-> - *The finished file goes to S3 — object storage, not the DB and not Redis — keyed by the report parameters, with a row in the DB recording params, status, and file key. That key doubles as a cache: same user, same params, data unchanged — return the existing link instead of regenerating. The client gets a presigned URL, a time-limited signed link, so the download goes straight from S3 to the browser and never transits my app.*
+> - *The finished file goes to S3 — object storage, not the DB and not Redis — keyed by the report parameters, with a row in the DB recording params, status, and file key. The client gets a presigned URL, a time-limited signed link, so the download goes straight from S3 to the browser and never transits my app.*
 > - *For "how does the client know it's done": polling every couple of seconds is honestly fine for job status — I'd only reach for SSE if I wanted the server to push progress events, and WebSockets only if I genuinely needed bidirectional. Simplest thing that works.*
-> - *And I'd make the submit idempotent on the server: if the same user posts the same params while a job's already in flight, return the existing job ID rather than enqueuing a duplicate — disabling the button helps, but I never trust the client to enforce that.*
 >
 > *On the front end: submitting kicks off the job, so the button disables and the UI shows the job as pending — the status is just React state. A `useEffect` sets up the polling interval and cleans it up on unmount, each poll updates state, state drives the progress indicator, and when the status flips to done I render the download link from the presigned URL. The user can keep using the app the whole time — nothing blocks."*
+
+> **Follow-up: "How do you stop two clicks on submit from kicking off two separate report jobs?"**
+>
+> *"A `Report` row per requested report — user, a hash of the params, task ID, status, file key. On POST I hash the params and look up the row: in-flight → return its existing task ID instead of enqueuing again; done and fresh → skip the job, return the download link; no row → insert and enqueue. A unique constraint on `(user, params_hash)` closes the race where two simultaneous requests both see no row and both try to insert. Disabling the button helps the UX but I never rely on the client to enforce it."*
+>
+> **Follow-up: "What if reporting load starts hurting live traffic?"**
+>
+> *"Point the report queries at a read replica — writes keep going to the primary, the replica absorbs the heavy reads. The one caveat I'd name is replication lag: fine for a report, wrong for a read-your-own-write flow."*
 
 ### "We want real-time notifications to users / a live progress bar — how?"
 
 > **🧰 Python topics in play:** **Concurrency** (WebSockets / Django Channels run on **async** — a persistent connection per client is exactly what an event loop is for, cheaper than a thread each) · **Cache — Redis** (the background task writes progress to Redis; the client reads it — and Redis **pub/sub** is what fans a notification out to many connections) · **Background tasks** (the long job is what's *reporting* the progress in the first place).
+
+**Core to lead with (3):** match the tool to the need, lightest that works — polling is fine for a bar → worker writes progress to Redis, client reads via poll or SSE → WebSockets only if genuinely bidirectional.
 
 Match the tool to the need — lightest thing that works:
 - **Polling** — client asks every few seconds. Simplest, works everywhere, more load. Fine for a progress bar.
@@ -445,20 +499,51 @@ Match the tool to the need — lightest thing that works:
 - **Progress bar pattern:** the background task writes its progress to Redis/cache; the client polls or reads it via SSE.
 - **Say this:** *"A progress bar doesn't need WebSockets — polling or SSE is simpler. I'd only reach for WebSockets when I need true bidirectional real-time."*
 - **Front-end half (this one is mostly client-side):** on the client it's polling vs `EventSource` (SSE) vs WebSocket, and how you wire it — a background job writes progress somewhere, the component reads it via polling/SSE and updates state to drive the bar. **Toasts** for notifications.
+- **The client never talks to Redis directly** — it's not internet-facing and doesn't speak HTTP. The client always talks to the API; the API is just doing a cheap Redis read instead of a DB query or a call to the worker.
+
+> **📝 My full answer (rehearsed):**
+>
+> *"A progress bar doesn't need WebSockets — it needs the background job to report where it's at, and something for the client to read that from. Client submits, gets a task ID back, same pattern as the report case. From there the client only ever talks to the API — never to Redis directly, that's not exposed.*
+>
+> *The worker writes its progress into Redis as it runs — a key like `progress:{task_id}` holding something like `{"pct": 40}`, updated periodically, not on every row. For a plain progress bar the client just polls `GET /jobs/{id}/status` every couple of seconds, and that endpoint's entire job is one Redis `GET` translated to JSON — it never touches the DB and never talks to the worker process directly. Redis is the shared state sitting between the two.*
+>
+> *If I want push instead of poll — real notifications, not just a bar — I'd hold the connection open with SSE, and the worker `PUBLISH`es progress to a Redis channel instead of just writing a key. The SSE view `SUBSCRIBE`s to that channel and forwards each message as it arrives. That pub/sub is also what lets one event fan out to more than one listener — two tabs open on the same job, or a chat message that needs to reach several connected clients at once. I'd only reach for WebSockets if the client also needed to send data back over that same channel in real time — a progress bar doesn't."*
+
+> **Follow-up: "Doesn't polling from thousands of clients hammer Redis or your API?"**
+>
+> *"Not really — each poll is a single Redis `GET`, sub-millisecond, and Redis handles tens of thousands of ops a second on modest hardware. What would actually hurt is if that endpoint touched Postgres or the worker instead. If it ever did become a problem, I'd lengthen the poll interval or move to SSE/pub-sub so it's push instead of N clients re-asking — but for one progress bar, polling a Redis key is cheap enough that I wouldn't pre-optimise it."*
 
 ### "We'll process millions of rows a day in the DB — how do you prepare?"
 
 > **🧰 Python topics in play:** **Indices and their types** (this is where **BRIN** for append-only time data, **partial**, and **composite/leftmost-prefix** actually earn their keep) · **EXPLAIN ANALYZE** (prove which query paths need indexing instead of guessing) · **SQL vs NoSQL** (the "does analytics belong in the transactional DB or a warehouse?" premise-question) · **Background tasks** (bulk ingest via `COPY`/`bulk_create` in workers, never row-by-row in a request) · **Concurrency** (if each row needs CPU-heavy parsing, that's the **multiprocessing** case — true parallelism for CPU-bound work).
 
+**Core to lead with (3, mid-level pitch):** index write-heavy query paths selectively → partition/archive old data out of the hot table → read replica for reporting. Frontend: virtualize + paginate, never render millions of DOM nodes. *(BRIN specifics, PgBouncer, autovacuum, and "question the premise" are real but staff-flavored — keep in reserve below, don't volunteer them in the opener.)*
+
+**Default answer:**
 - **Index the query paths** — but not everything; each index slows writes, and you're write-heavy here.
-- **Partition big tables** (e.g. by date/month) so queries scan less and old partitions can be dropped cheaply. **BRIN indexes** suit append-only time-ordered data.
+- **Partition big tables** (e.g. by date/month) so queries scan less and old partitions can be dropped cheaply.
 - **Bulk operations** — `COPY` / `bulk_create`, batched, never row-by-row inserts.
 - **Retention / archiving** — move old data out of the hot table.
-- **Connection pooling** (PgBouncer) so millions of short connections don't exhaust the DB.
 - **Read replicas** for heavy read/analytics; keep the primary for writes.
+- **Front-end half (your strongest front-end answer):** you **never render millions of DOM nodes — you virtualize/window** (render only the visible rows) and do server-side pagination/filtering so the client only fetches what's on screen. **AG Grid's server-side row model does exactly this** — worth knowing conceptually even though you haven't wired it up in DocIntel yet; say "I haven't shipped it there yet, but that's the model I'd reach for" if pressed.
+
+**Only if probed further ("anything else?" or a specific follow-up) — don't lead with these:**
+- **BRIN indexes** specifically for append-only time-ordered data (vs a plain B-tree).
+- **Connection pooling** (PgBouncer) so millions of short connections don't exhaust the DB.
 - **Tune autovacuum** (high write/update volume creates dead tuples that bloat tables).
-- **Question the premise:** does *all* of it need to live in the transactional DB, or should analytics go to a warehouse? Asking that shows design maturity.
-- **Front-end half (your strongest front-end answer):** you **never render millions of DOM nodes — you virtualize/window** (render only the visible rows) and do server-side pagination/filtering so the client only fetches what's on screen. **AG Grid's server-side row model does exactly this** — a concrete, real example from DocIntel.
+- **Question the premise:** does *all* of it need to live in the transactional DB, or should analytics go to a warehouse? A strong point, but a senior-signaling one — deploy it only if the conversation has room for it, not as bullet #1.
+
+> **📝 My full answer (rehearsed, mid-level pitch):**
+>
+> *"First I'd separate writes from reads, because they pull in different directions. On the write side: index only the query paths that are actually reused, since every index costs you on insert — you're write-heavy here so I'd be deliberate about which ones earn their keep. I'd also partition large tables by time, so old data can be archived or dropped cheaply instead of bloating one giant hot table, and keep ingestion as bulk operations — COPY or batched inserts — never row-by-row.*
+>
+> *On the read side, I'd put reporting and analytics queries against a read replica instead of the primary, so heavy reads don't compete with the writes.*
+>
+> *On the frontend, the same problem shows up as 'don't render millions of DOM nodes.' I hit exactly this on SaunaGuide — loading every sauna listing on the page was slow — so I paginated it, 10 at a time, and loaded the next 10 when the user scrolled to the bottom. AG Grid's server-side row model is the productionized version of that same idea: it virtualizes rows and pushes sorting/filtering/pagination to the server instead of holding the whole dataset in the browser."*
+
+> **Follow-up: "Anything else you'd consider?" / "Why BRIN specifically, not a normal B-tree, for time-ordered data?"**
+>
+> *"A few things I'd add if this kept scaling: a connection pooler like PgBouncer, since real Postgres connections are expensive processes and bursts of short app connections can exhaust the DB. I'd keep an eye on autovacuum, since high write volume creates dead tuples that bloat tables if it's not tuned. For the time-ordered partitions specifically, a BRIN index suits them well — it just stores the min/max per block rather than indexing every row's exact value like a B-tree, so it's much smaller and cheaper to maintain when the data is naturally sorted by insertion time. And I'd genuinely ask whether all of this needs to live in the transactional database at all, or whether some of it belongs in a separate analytics warehouse — keeping the OLTP database lean is often the bigger win than tuning around a database that's doing two jobs."*
 
 ### "Two users edit the same record at the same time — how do you handle it?"
 
@@ -466,18 +551,26 @@ Match the tool to the need — lightest thing that works:
 >
 > *Highest-probability new scenario at a fund administrator — concurrent updates to financial records is their daily reality.*
 
+**Core to lead with (3):** ask first — how likely is a conflict, how bad is losing an edit → optimistic (version column, cheap, nothing blocks) vs pessimistic (`select_for_update`, right call for money) → name last-write-wins as the rejected default, not an accident.
+
 - **First question to ask out loud:** how likely is a conflict, and how bad is silently losing an edit? That decides the strategy.
 - **Optimistic locking** (conflicts rare): a `version` column; the update runs `WHERE id = ? AND version = ?`; zero rows updated means someone else won — return a conflict and let the user reload/merge. Cheap, nothing blocks.
 - **Pessimistic locking** (conflicts likely, or the update must be serialized): `select_for_update()` inside `transaction.atomic()` — the second writer blocks until the first commits. Right call for anything touching money or stock.
 - **Last-write-wins** is what happens if you do nothing — name it as a choice you're *rejecting*, not an accident.
-- **Say this:** *"Optimistic when conflicts are rare — a version check and a friendly conflict message. Pessimistic — `select_for_update` — when updates must be serialized, like anything touching money."*
+> **Say this:** *"First I'd ask: how likely is a conflict, and how bad is losing an edit? That decides the strategy. If conflicts are rare — optimistic locking: add a version column, and on save, UPDATE ... WHERE id = ? AND version = ?. Zero rows updated means someone else got there first — return a conflict and let the user reload. If conflicts are likely or the update must be serialized — pessimistic locking: select_for_update() inside a transaction, so the first user's lock blocks the second. My day job uses pessimistic for documents (checkout/checkin); for financial data, I'd lean pessimistic too."*
 - **Front-end half:** send the version the user *loaded* along with their save; on a 409 show a conflict UI (reload / show what changed) instead of silently overwriting. Disabling the save button only prevents double-submit from the *same* user — it does nothing for two different users.
 
 **🔧 Real example (day job):** Montana runs *real* pessimistic locking — documents are **checked out / checked in** through the document service (`LockRecord`/`LockHistory` in the datastore), including from Word via the VSTO add-in. Two drafters silently merging edits to a bill is unacceptable, so the lock is explicit and held for the whole editing session — far longer-lived than a `select_for_update` row lock, same principle. **The line:** *"My day job literally runs on check-out/check-in locking — that's the pessimistic end of the spectrum, right for documents where a merge is meaningless. For rare, low-stakes conflicts I'd use an optimistic version check instead — no reason to make users queue when they'll almost never collide."* (Say "our document service", not the internal codenames.)
 
+> **Follow-up: "What does `select_for_update` actually do at the DB level — does it block reads too, or just writes?"**
+>
+> *"It takes a row-level lock that blocks other writers — and other `select_for_update` readers — from touching that row until the transaction commits. A plain read without `FOR UPDATE` isn't blocked; it just sees the last-committed version, not the in-flight change."*
+
 ### "We depend on a slow / flaky third-party API — what do you do?"
 
 > **🧰 Python topics in play:** **Concurrency** (a hung call with no timeout blocks a worker — the I/O-bound story again) · **Background tasks** (move the call off the request path; retry from the queue) · **Cache — Redis** (serve the last good response when the provider is down).
+
+**Core to lead with (3):** timeouts, always, non-negotiable → retry with backoff, only if idempotent → circuit breaker after N failures, fail fast instead of queueing doomed calls.
 
 - **Timeouts, always** — a call with no timeout eventually hangs every worker you have. This is the non-negotiable first line.
 - **Retries with exponential backoff + jitter** — but only for idempotent calls; retrying a non-idempotent call (a payment) is how you double-charge someone. (Links to the idempotency scenario below.)
@@ -486,9 +579,15 @@ Match the tool to the need — lightest thing that works:
 - **Degrade gracefully** — cache the last good response and serve it stale with a notice, rather than erroring the whole page.
 - **Say this:** *"Timeout first, retry with backoff only if it's idempotent, circuit-break if it keeps failing, and where possible move the call behind a queue so the user never waits on someone else's uptime."*
 
+> **Follow-up: "Walk me through the circuit breaker states."**
+>
+> *"Closed — calls flow normally. After N consecutive failures it opens — fails fast, no calls even attempted, for a cooldown period. After the cooldown it goes half-open and lets one test call through: success closes it again, failure re-opens it and resets the cooldown."*
+
 ### "Users need to upload large files — how?"
 
 > **🧰 Python topics in play:** **Cloud — S3 / presigned URLs** (the same presigned pattern as the report download, in reverse) · **Background tasks** (post-upload processing) · **Generators** (if the server must touch the bytes, stream them — never hold the file in memory).
+
+**Core to lead with (3):** never proxy bytes through your app — presigned S3 URL, client uploads direct → validate cheap stuff (type/size/permissions) before issuing the URL, heavy stuff (virus scan, parsing) after, in a background task → multipart upload for very large/resumable files.
 
 - **Don't proxy the bytes through your app server** — issue a **presigned S3 URL** and let the client upload directly to S3. Your app handles a tiny metadata request; the heavy bytes never transit it. Mirror image of the report-download answer.
 - **Validate cheap things before** issuing the URL (type, declared size, permissions); **process after** — virus scan, parsing, thumbnailing — in a queued background task triggered once the upload lands.
@@ -496,6 +595,10 @@ Match the tool to the need — lightest thing that works:
 - Record an upload row (who, key, status) so the async processing has something to update — same job-status pattern as the report.
 - **Say this:** *"Presigned URL, client uploads straight to S3, my app only ever handles metadata — then a background task processes the file and updates its status."*
 - **Front-end half:** progress bar from the upload's progress events, chunked/resumable for big files, client-side type/size check as UX (server still enforces — never trust the client).
+
+> **Follow-up: "What if the upload succeeds to S3 but the client never tells your app?"**
+>
+> *"Two options, not mutually exclusive: an S3 event notification triggers the post-processing directly — S3 to SQS or Lambda — so it doesn't depend on the client at all. Or a periodic reconciliation job checks for upload rows stuck in 'pending' past a threshold and either re-checks S3 for the object or flags it."*
 
 ### "An endpoint is getting hammered — how do you rate limit / protect it?"
 
