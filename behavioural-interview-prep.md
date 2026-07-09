@@ -24,6 +24,24 @@ For each topic, here's what interviewers are typically scoring for — mid-level
 
 **Looking for:** systematic method, not luck. Did you form a hypothesis, isolate variables, use logs/tools rather than guess-and-check? For third-level support specifically, they want to see you distinguishing symptom from root cause, and communicating status while still investigating (not going dark for hours). Bonus: did you leave the system better (added logging, alert, runbook) so the next person doesn't repeat the hunt.
 
+**Story: public member assets deleted on committee removal (Montana, CM-308).**
+
+**S — Situation**
+
+A client bug ticket reported that removing a public member from an interim committee in the LRMS committee-management system was wiping that person's assets, not just their membership on that one committee.
+
+**T — Task**
+
+Troubleshoot the ticket: reproduce it, find the root cause, and fix it — knowing going in that "removal" touches both the Aurelia frontend and the Django backend, so the cause could be on either side.
+
+**A — Action**
+
+I set up a dummy public member on a dummy interim committee in a dev/test environment so I could reproduce on demand without touching real data. Reproducing confirmed it: removing the PM from the committee wiped more than that one membership. I checked logs first to see which request/endpoint fired on removal, then stepped through the code on both sides to trace the flow. On the frontend (`edit-committee.js`) I found removed public members were tracked in a set and their UUIDs sent to the backend on save as `removedPublicMembers`. On the backend (`committee.py`, `set_committee_members`) I found a special-cased block that took that list and ran `User.objects.filter(uuid__in=removed_public_members).delete()` — an unscoped hard delete of the member's global `User` record. Every other member removal in the same function only deletes the `CommitteePosition` join row for that specific committee. So the bug wasn't in the "removal" feature at all — it was a conflation of two different operations: "remove from this committee" was implemented as "delete this person," which cascaded away all their assets across the whole system, not just the one committee link.
+
+**R — Result**
+
+Fixed by removing the `removedPublicMembers` hard-delete path entirely — public member removal now goes through the same `CommitteePosition`-only deletion as every other member type, scoped correctly to the one committee. I used the same change to add drag-and-drop for adding public members to a committee, since I was already in that code. Ticket resolved, and the fix removed a live data-loss risk rather than just patching the symptom.
+
 ### Ownership end-to-end
 
 **Looking for:** did you drive it from ambiguous ask to production, including the unglamorous parts (deployment, monitoring, telling stakeholders it's done)? They're checking you don't need a project manager assigning you sub-tasks. Mention a point where you made a judgment call without waiting for permission.
@@ -132,6 +150,6 @@ The feature shipped as a self-contained end-to-end flow: user selects pages in t
 
 - Lead with financial services + strong debugging/ownership; frame the AI stack as the gap I built DocIntel to close.
 - Never claim past what you've built and understand. "I'm building X" is a strong answer.
-- Best backup story: the mortgage-protection troubleshoot.
+- Primary troubleshooting story: the public-member deletion bug (CM-308). Mortgage-protection is backup.
 - Finish the customer-similarity story's ending before the interview.
 - Keep answers tight — give the signal, not the saga.
