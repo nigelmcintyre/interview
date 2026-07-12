@@ -24,15 +24,61 @@ The whole answer hinges on one fact: **the GIL (Global Interpreter Lock)**. In C
 
 **Django note:** classic Django is synchronous (WSGI). Django 3.1+ supports async views (ASGI). Heavy work is usually pushed to **Celery** rather than done in the request. Worth saying if asked how Django handles it.
 
-**🔧 Real example:** at Propylon — is any document/XML processing CPU-heavy (parsing legacy `.doc`, large legislative files)? That's a multiprocessing story. Are there many API calls between the VSTO add-in and the Django backend? That's an I/O/threads story. *Pick the one that's actually true and be ready to say why you'd choose that model.*
+**🔧 Real example — multithreading (verified in the codebase):**
+
+Fan-out/fan-in in a DRF view — [mt-cm-common-plugin/src/cm/cm_core/views/committee.py:140-171](../mt-cm-common-plugin/src/cm/cm_core/views/committee.py#L140-L171)
+
+```python
+threads = [
+    WorkerThread(target=self.write_cmt_witnesses, args=(witnesses, committee)),
+    WorkerThread(target=self.set_committee_members, args=(committee_members, committee)),
+    WorkerThread(target=self.populate_meeting_committees, args=(meetings, committee)),
+]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+```
+
+Committee creation needs three independent writes to the datastore — witnesses, members, meetings. The parent `committee` is created and saved *first*; all three threads write against that already-existing committee, not against each other, so there's no ordering dependency between them. Each write is an HTTP call to the central document service — textbook I/O-bound: the GIL releases while one thread waits on the network, so the next thread's request fires instead of the CPU sitting idle.
+
+Depth details, ready but not volunteered unprompted:
+- Standard `threading.Thread` doesn't propagate exceptions to the joining thread by default — a custom `WorkerThread` subclass wraps `run`/`join` to capture and re-raise.
+- A comment right above the spawn: *"Resolve backend in the main request thread before spawning workers — WorkerThreads have no thread-local request, so lazy resolution would fail."* A real thread-local-state gotcha: Django/DRF lazily resolves the request-scoped backend, and that lazy resolution breaks inside a spawned thread because no request is bound to that thread's local storage.
+- `WorkerThreadPool` (a `ThreadPoolExecutor` subclass with the same fix) is defined alongside it but **no call site instantiates it** — the codebase consistently uses manual `start()`/`join()`. Say that precisely if asked; don't imply the pool is in active use.
+
+⚠️ **Not cold yet** — the plain `ThreadPoolExecutor` API (as opposed to this codebase's manual `start()`/`join()`) isn't locked in. Have I actually written and timed a `ThreadPoolExecutor` example, not just described the concept?
+
+**🔧 Worked example — `ThreadPoolExecutor`:**
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+with ThreadPoolExecutor(max_workers=3) as executor:
+    future_1 = executor.submit(call_api_1)
+    future_2 = executor.submit(call_api_2)
+    result_1 = future_1.result()  # blocks until call_api_1 finishes
+```
+`submit()` returns a `Future` immediately and runs the call on a pool thread; `.result()` blocks the calling thread until that specific future finishes. The `with` block waits for all submitted work to complete before exiting — same fan-out/fan-in shape as the manual `start()`/`join()` pattern above, just with pooled threads and a cleaner call site.
+
+**The line to say:** *"Committee creation needs three independent writes to our document store — witnesses, members, meetings — each an HTTP call. We fan them out on threads: the GIL releases while each thread waits on the network, so the three requests overlap instead of running one after another. Textbook I/O-bound case, so threads are the right tool, not multiprocessing."*
+
+**🔧 Real example — multiprocessing (Celery):** Celery's default worker pool (**prefork**) is separate OS processes, each with its own interpreter and GIL — genuine multiprocessing, not threading, even though Celery gets introduced as "just a task queue." **The line to say:** *"Celery's prefork worker pool is already multiprocessing under the hood — separate OS processes, so if a task is CPU-heavy, I'd scale worker processes for real parallelism with no GIL contention between them."*
 
 ---
 
 ### Types
 
-Python is **dynamically typed** (a variable's type is checked at runtime, not declared) but **strongly typed** (it won't silently add a string to an int). Everything is an object.
+**Two separate axes — don't merge them (easy interview trap):**
+- **Static vs dynamic** = *when* the type is checked. Static (C#, Java): declared up front, checked at compile time. Dynamic (Python): no declaration, checked at runtime — a name can point at an `int` today and a `str` tomorrow.
+- **Strong vs weak** = *whether the language silently coerces between types*. Strong (Python): refuses — `"2" + 2` raises `TypeError`, nothing happens. Weak (JavaScript): coerces — `"2" + 2` silently becomes `"22"`.
 
-**Type hints** (`def f(x: int) -> str:`) are optional and *not enforced at runtime* — they're for readability and for tools like `mypy`/`pyright`. The exception: **Pydantic and FastAPI use hints at runtime** to actually validate data.
+Python is **dynamic + strong**. C# is **static + strong**. JS is **dynamic + weak**. Everything in Python is an object.
+
+**Type hints** (`def f(x: int) -> str:`) are optional and *not enforced at runtime by the interpreter* — they're for readability and for static tools like `mypy`/`pyright` (which check them before you run, without executing the code — the closest thing to "compile-time" Python has, and it's opt-in tooling, not the language). The exception: **Pydantic and FastAPI use hints at runtime** to actually validate data.
+
+**The line to say (Pydantic/FastAPI):** *"Pydantic and FastAPI take type hints — which the interpreter itself never enforces — and validate them at runtime. Before your function body executes, incoming data gets checked against the hint; if it doesn't match, it never reaches your code — the request is rejected with a structured error. So it's not static typing, but it gives you a static-typing-like guarantee at the boundary, enforced dynamically instead of at compile time."*
+
+**Contrast with plain Django:** a plain view doesn't use hints for enforcement at all — nothing catches a mismatch automatically. If a view expects an int and gets a string from `request.POST`, nothing complains until your own code tries to do something int-like with it, and *that* raises the error, possibly several lines later, deep in your logic. DRF serializers or Pydantic validate the shape up front and reject cleanly with a 400/422 — fail-fast-and-clear vs fail-late-and-wherever-it-breaks.
 
 **From C#:** hints look like C# types but behave more like documentation — the compiler isn't stopping you. Pydantic is the thing that gives you C#-like "the type is real" enforcement.
 
@@ -46,15 +92,47 @@ Python is **dynamically typed** (a variable's type is checked at runtime, not de
 - **Mutable:** `list`, `dict`, `set`, most custom objects.
 
 **Why an interviewer asks** — the gotchas:
-1. **Mutable default argument:** `def add(item, items=[])` — the list is created *once* and shared across every call. Classic bug. Fix: `items=None` then `items = items or []`.
-2. **Passing mutables into functions:** the function can mutate the caller's object (Python passes object references).
+
+1. **Mutable default argument:** `def add(item, items=[])` — the default `[]` is created **once, at function *definition* time**, not on every call. Any call that *doesn't* pass its own `items` reuses that same shared list object — `add("Mary")` then `add("John")` (both relying on the default) leaves you with `["Mary", "John"]`, not two independent single-item lists.
+   Fix — create a genuinely new list every call, don't reuse or clear the old one:
+   ```python
+   def add(item, items=None):
+       items = items if items is not None else []   # or: items = items or []
+       items.append(item)
+       return items
+   ```
+   `None` is immutable, so it's safe as the shared default; the fresh `[]` only gets built inside the function body, which runs anew each call.
+
+2. **Passing mutables into functions — "pass by object reference," not "pass by reference":** the parameter name inside the function is bound to the *same object* the caller's variable points to, so a **mutation** through it (`.append()`, item assignment) is visible to the caller. But a **reassignment** of the parameter name (`items = []`) only rebinds that local name to a new object — it does not touch what the caller's variable points to. The test that proves it: a function that does `items = []` instead of mutating never empties the caller's list. Names are labels pointing at objects; each scope has its own labels even when they start out aimed at the same object.
+
 3. **Dict/set keys must be hashable** → must be immutable. That's why you can key on a tuple but not a list.
 
 **Two cheap add-ons that get asked in the same breath:**
-- **`copy` vs `deepcopy`:** `copy.copy()` copies the outer object but *shares* nested mutables; `copy.deepcopy()` recursively copies everything. Slicing (`lst[:]`) and `dict.copy()` are shallow.
-- **`is` vs `==`:** `is` compares identity (same object in memory), `==` compares value. Only use `is` for `None`/sentinels. Gotcha: small-int and string interning make `is` *appear* to work on literals — never rely on it.
+- **`copy` vs `deepcopy`:** `copy.copy()` makes a new *outer* container but doesn't copy the elements inside it — nested mutables are shared. Concretely: `shallow = copy.copy(original)` where `original = [[1,2],[3,4]]` — `shallow[0]` and `original[0]` are the *same* inner-list object, so `shallow[0].append(99)` also changes `original`. `copy.deepcopy()` recursively copies every nested object too, so there's no shared reference at any depth. Slicing (`lst[:]`) and `dict.copy()` are shallow.
+- **`is` vs `==`:** `is` checks **identity** — same object in memory (`id(a) == id(b)`), not type and not value. `==` compares value. Reserve `is` almost exclusively for `x is None` (identity is the actual meaning there). Gotcha: CPython caches small ints (-5 to 256) and interns some string literals, so `a is b` can *look* true for separately-written literals — that's a CPython implementation detail/optimization, not a language guarantee, and it silently breaks for runtime-built strings or larger ints. Never rely on it; use `==` for value comparison.
 
 **🔧 Real example:** a bug you hit where a shared/mutable value caused unexpected behaviour is perfect here — even a small one.
+
+---
+
+### Data structures — quick reference
+
+Not a named topic, but the vocabulary underneath everything above — worth having crisp.
+
+| Structure | Ordered? | Mutable? | Duplicates? | Notes |
+|---|---|---|---|---|
+| `list` | ✅ | ✅ | ✅ | general-purpose sequence |
+| `tuple` | ✅ | ❌ | ✅ | immutable → hashable if contents are; usable as a dict key (a list can't be) |
+| `dict` | ✅ (insertion order, guaranteed since 3.7) | ✅ | keys unique, values can dup | hash table under the hood, O(1) avg lookup |
+| `set` | ❌ | ✅ | ❌ (unique only) | hash table, O(1) avg membership test |
+| `frozenset` | ❌ | ❌ | ❌ | immutable set → hashable, usable as a dict key |
+| `str` | ✅ | ❌ | ✅ | immutable sequence of characters |
+
+Tuple isn't "a kind of list" in a type-hierarchy sense — they're separate types. The similarity is that both are ordered sequences allowing duplicates/mixed types; the real difference is mutability, and that's exactly why a tuple can be a dict key or set member and a list can't (ties to the hashability rule above).
+
+Worth knowing exist in `collections` if it comes up: `defaultdict` (auto-default on missing key), `Counter` (frequency counting), `deque` (O(1) append/pop from *both* ends, unlike list's O(n) from the front).
+
+**`*args` / `**kwargs`:** `*args` collects extra positional arguments into a tuple; `**kwargs` collects extra keyword arguments into a dict. Same symbols also *unpack* a tuple/dict back out into a call (`func(*args, **kwargs)`). The reason decorators lean on this so heavily: a generic decorator doesn't know the signature of whatever function it wraps, so `def wrapper(*args, **kwargs): return func(*args, **kwargs)` accepts anything the caller passes and forwards it transparently — without this, you'd need a differently-shaped decorator for every function signature.
 
 ---
 
@@ -62,21 +140,40 @@ Python is **dynamically typed** (a variable's type is checked at runtime, not de
 
 Name lookup follows **LEGB**: **L**ocal → **E**nclosing → **G**lobal → **B**uilt-in. `global` and `nonlocal` let you reassign names in outer scopes.
 
-**The gotcha:** assigning to a name *anywhere* in a function makes it local for the whole function → `UnboundLocalError` if you also read it before assigning. Closures capture the enclosing variable, not its value at definition time.
+**The gotcha, precisely:** Python's compiler scans the **whole function body ahead of time** — if it sees an assignment to a name *anywhere* in that function, the name is classified as local **for the entire function**, from the first line, before any of it has run. So local wins the LEGB lookup immediately; Python never even checks the enclosing/global scope for that name. If you *read* the name before the line that assigns it, you get `UnboundLocalError` — not "used the outer value, then shadowed it."
 
-Keep this one short — a crisp LEGB answer plus the closure/`UnboundLocalError` gotcha is plenty.
+```python
+x = "global"
+
+def outer():
+    x = "outer"
+
+    def inner():
+        print(x)     # UnboundLocalError — x is already local to inner() (see x = "inner" below),
+        x = "inner"   # so LEGB never looks at outer()'s x here.
+
+    inner()
+```
+
+**The fix, `nonlocal`:** `nonlocal x` at the top of `inner()` redirects *assignment* targets — instead of creating a local shadow, `x = "inner"` now rebinds the existing `x` that lives in `outer()`. With it: `print(x)` prints `"outer"` (no error — `x` isn't local anymore), then `outer()`'s `x` genuinely becomes `"inner"` after `inner()` returns. `global` is the same idea one level up, for module-level names.
+
+**Related trap — don't say "pass `x` in and reassign it" as a fix.** Reassigning a parameter inside a function only rebinds that local name; it never writes back to the caller's variable or object, mutable or immutable. Same rule as the mutable-default-argument gotcha above — reassignment never propagates outward, only in-place mutation of a shared mutable object does.
+
+Keep this one short in the room — a crisp LEGB answer plus the `UnboundLocalError`/`nonlocal` gotcha is plenty. Closures capture the enclosing *variable*, not its value at definition time — worth a one-liner if asked about closures directly.
 
 ---
 
 ### Generators / iterators
 
-An **iterator** is anything you can call `next()` on — it produces values one at a time. A **generator** is the easy way to write one: a function with `yield` pauses at each yield and resumes where it left off, so values are produced **lazily** — nothing is materialised until asked for, and only one item is in memory at a time.
+An **iterator** is anything you can call `next()` on — it produces values one at a time and raises `StopIteration` when exhausted. That's the protocol (`__iter__` + `__next__`); a plain list is *iterable* but isn't itself an iterator — `iter(my_list)` produces the iterator object that `next()` actually operates on. A **generator** is the easy way to write one: a function with `yield` pauses at each yield, hands back the yielded value, and **freezes all local state** (variables, where execution stopped) so the next `next()` call resumes from exactly that point.
 
-- `yield` vs `return`: a generator produces many values over time; its local state survives between yields.
+- `yield` vs `return`: `yield` pauses and preserves local state between calls; `return` ends the function and discards its state.
 - **Generator expression** `(x*2 for x in rows)` vs list comprehension `[x*2 for x in rows]` — same syntax, but the genexp is lazy and constant-memory.
-- One-shot: once exhausted, a generator is done — you can't iterate it twice.
+- One-shot: once exhausted, a generator is done — you can't iterate it twice; call the generator function again for a fresh one.
 
-**🧭 Tech design link:** this is the memory story inside **"big report"** and **"millions of rows"** — Django's `.iterator(chunk_size=...)` (already in your rehearsed report answer) streams a queryset instead of loading it. Being able to say *"that stays flat in memory because it's a generator underneath — lazy, one chunk at a time"* ties the topic to the scenario.
+**Why it matters — put a number on it:** 10 million rows at ~1KB each. `list(queryset)` (or any full materialization) builds *every* row into memory before your loop even starts — ~10GB on one worker, before processing row #1. A generator (`.iterator(chunk_size=2000)`) only ever holds the current row/chunk — memory stays flat at a few KB–MB **regardless of table size**, because nothing downstream holds a reference to rows once they're processed.
+
+**🧭 Tech design link:** this is the memory story inside **"big report"** and **"millions of rows"** — Django's `.iterator(chunk_size=...)` streams a queryset instead of loading it. *"That stays flat in memory because it's a generator underneath — lazy, one chunk at a time, so the report doesn't OOM the worker regardless of table size."*
 
 **🔧 Real example:** any place you stream/chunk instead of load-all — the report chunking pattern *is* this.
 
@@ -96,7 +193,22 @@ Two mechanisms:
 
 A decorator is **a function that takes a function and returns a wrapped version** — `@decorator` is just syntactic sugar for `f = decorator(f)`. Used for cross-cutting concerns without touching the function body: timing, logging, caching (`@lru_cache`), auth (`@login_required`), FastAPI routes (`@app.get(...)`), `@property`.
 
-Use `functools.wraps` so the wrapper keeps the original's name/docstring.
+⚠️ **Not cold yet** — you have the definition solid but not the *why*, and needed `@login_required` / `@app.get(...)` walked through from scratch in a prep session rather than producing them unprompted. The why, in one line: without the decorator you'd have to call the auth check (or route-registration code) manually at the top of *every* view — the decorator lets you write that boilerplate once and stick it on any function with `@`, instead of repeating it. Lock in a real example before the interview.
+
+**`functools.wraps` — why it's needed:** `f = decorator(f)` means the decorated name now points at your inner `wrapper` function, not the original — so without intervention, introspection (`__name__`, `__doc__`, stack traces, logging) reports the *wrapper's* identity, not the real one:
+```python
+def my_decorator(func):
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+
+@my_decorator
+def say_hello():
+    """Prints hello"""
+
+say_hello.__name__   # "wrapper" — wrong
+```
+**The concrete failure case:** every decorated function in a log line or stack trace shows up as `"wrapper"` — exactly the identifying detail you need to go find the actual bug disappears. `functools.wraps(func)` applied to the inner `wrapper` copies `__name__`, `__doc__`, `__module__` from the original onto it, so `say_hello.__name__` correctly reports `"say_hello"`.
 
 **From C#:** conceptually close to attributes + middleware/aspects, but decorators actually *wrap and run* code rather than just annotate.
 
@@ -112,7 +224,9 @@ Use `functools.wraps` so the wrapper keeps the original's name/docstring.
 
 **Pairs with decorators in interviews:** both wrap behaviour around code — a decorator wraps a *function*, a context manager wraps a *block*.
 
-**🧭 Tech design link:** Django's `transaction.atomic()` *is* a context manager — this feeds the **concurrent edits** and **duplicate requests** scenarios below. Same pattern for DB connections and locks: acquire in `__enter__`, guaranteed release in `__exit__`.
+**🧭 Tech design link:** Django's `transaction.atomic()` *is* a context manager — `__enter__` begins a transaction (or a savepoint, if nested), `__exit__` commits if the block completes clean or rolls back if an exception propagated out. Same pattern as `with open(...)`: guaranteed cleanup either way.
+
+**Don't conflate atomicity with locking — a common trap.** `transaction.atomic()` on its own only guarantees **atomicity**: everything inside commits together or rolls back together, no partial writes. It does **not** lock anything or prevent two concurrent transactions from both reading and writing the same row. Plain `with transaction.atomic(): obj.save()` with no explicit locking can still lose an update if two requests race. Locking is a separate, additional thing you add *inside* the atomic block: **pessimistic** (`select_for_update()` — locks the row, others block until commit) or **optimistic** (a `version` column + conditional `UPDATE ... WHERE id=? AND version=?`). This feeds the **concurrent edits** and **duplicate requests** scenarios below.
 
 ---
 
@@ -123,7 +237,28 @@ Use `functools.wraps` so the wrapper keeps the original's name/docstring.
 
 **The tradeoff to name (interviewers love this):** signals decouple code but make control flow *hard to trace* — an explicit function call is often clearer. Reach for signals when the sender shouldn't know about the receiver; otherwise call the code directly.
 
-**🔧 Real example:** does the Ascended Datastore use signals for anything (audit trail, cache invalidation, keeping data consistent between the Word front end and backend)? That maintaining-data-consistency work on your CV is a natural fit — confirm the mechanism.
+**🔧 Real example — verified in the codebase, but ⚠️ not authored by you (`git log` shows Brant Watson on both files) — frame as "our codebase does this," never "I wrote this":**
+
+- **Middleware:** [lrms-core/src/ascended/webapp/middleware.py:17-33](../lrms-core/src/ascended/webapp/middleware.py#L17-L33) — a function-based `version_middleware` and a class-based `AscendedAnalyticsMiddleware`, registered right after CORS and before CSRF/session/auth in settings. Real, demonstrable order-matters example.
+- **Signals:** [lrms-core/src/ascended/authentication/signals.py](../lrms-core/src/ascended/authentication/signals.py) and [lrms-core/src/ascended/virtualview/signals.py:10-20](../lrms-core/src/ascended/virtualview/signals.py#L10-L20):
+  ```python
+  @receiver(post_save, sender=User)
+  @receiver(post_delete, sender=User)
+  @receiver(m2m_changed, sender=User)
+  def invalidate_user_cache_user(sender, instance, **kwargs):
+      invalidate_user_cache_usernames((instance.username,))
+  ```
+  ```python
+  @receiver(post_save, sender=VVMapping)
+  @receiver(post_delete, sender=VVMapping)
+  def increment_virtualview_version(sender, instance, **kwargs):
+      """Increment the virtualview version counter by 1"""
+  ```
+  `post_save`/`post_delete`/`m2m_changed` receivers invalidate or version a cache when `User`/`Group`/`Permission` or a `VVMapping` changes — genuinely the sender-shouldn't-know-about-the-receiver case: `User` has no idea a cache exists. **The tradeoff cuts both ways here too:** decoupled, but you have to go looking in `signals.py` to discover the side effect exists at all.
+
+**The line to say (honest framing):** *"In our Django datastore service, cache invalidation on the auth models is wired through signals — `post_save`/`post_delete` receivers that invalidate a user's cache entry whenever the User or their permissions change. I haven't written that particular file, but it's exactly the pattern I'd reach for: the User model shouldn't need to know a cache exists, so the signal decouples that side effect from the save itself."*
+
+Note: this pattern lives specifically in the standard-Django `ascended` app inside `lrms-core`. The apps you've actually committed to (`mt-cm-common-plugin`, `mt-chamber-interface`, etc.) sit on the custom Joplin/ORM-like datastore layer, not Django's ORM, so they don't emit `post_save`/`pre_save` signals the same way — don't imply you've used signals in your own commits.
 
 ---
 
@@ -285,6 +420,10 @@ Be honest here: your hands-on cloud is limited (Azure AD SSO at Irish Life; Dock
 
 **🔧 Real example:** how is the Propylon Django app deployed? Even "it runs in containers / has a CI pipeline in X" is a real, usable answer.
 
+**Stronger version — on-prem vs AWS deploy model, reasoned from the actual constraint:** at Propylon, the servers are pre-configured — Python, dependencies, system libraries already installed — so a deploy is just shipping the RPM/app code onto a known environment. In AWS you can't assume the target server has *anything* pre-installed, so you containerize instead: Docker bundles app + runtime + dependencies into one image, so any server (or Fargate, with no server at all) can run it with zero pre-setup. **Say this:** *"On-prem at Propylon, the servers are already configured with Python and the right dependencies, so we just ship the RPM. In AWS you can't assume that — so you'd containerize: bundle the app, runtime, and dependencies into one Docker image so it runs identically anywhere, no pre-setup needed."*
+
+**Strong follow-up, if asked "why doesn't Propylon just containerize too?"** — don't answer "modern is better," answer with the actual constraints: legacy/path dependency (it works, and it's a small, stable on-prem footprint, not a fleet), the operational overhead of running an image registry and managing image builds/versions for that small footprint isn't worth it, direct-SSH-onto-the-box debugging is simpler for a small ops team than working through a container layer, and on-prem often carries compliance/data-residency constraints that shaped the deploy model in the first place. **Frame it as a tradeoff, not a maturity gap:** *"Containers aren't universally better — they buy you portability and scalability at the cost of extra operational machinery (registries, image lifecycle). For a small, stable on-prem footprint with direct-access debugging and possible compliance constraints, the RPM-onto-a-known-server model is genuinely the simpler, right-sized choice. The right infra follows the constraints, not a 'newer is better' assumption."*
+
 ---
 
 ## AI — RAG pipeline, tokenisation (briefly)
@@ -305,15 +444,32 @@ Keep both brief; you've got the honest "I built RAG against the Anthropic API; B
 ### React fundamentals (most likely to be asked)
 - **Props vs state**, and when you'd *lift state up*.
 - **Virtual DOM / reconciliation** — what it does, and why **keys** matter in lists.
-- **Controlled vs uncontrolled** components (form inputs).
+- **Controlled vs uncontrolled** components (form inputs). **DocIntel search box, reasoned out:** controlled — because you want to react to *every* keystroke (character count, styling, showing "typing…" state) while still deferring the *expensive* part (the actual fetch) to a debounce timer or a submit/Enter handler. Controlled input, cheap per-keystroke reactions, expensive action gated separately — that's the general shape of the answer, not just "controlled because forms are usually controlled."
 - **Hooks** — what a hook is; walk `useState`, `useEffect`, `useContext`, `useRef`.
-- **`useEffect` in depth** — the dependency array, the cleanup function, and the classic pitfalls (infinite loops, stale closures, missing deps). *This is the #1 "do they really know React" probe — be solid here.*
+- **`useEffect` in depth** — the dependency array, the cleanup function, and the classic pitfalls (infinite loops, stale closures, missing deps). *This is the #1 "do they really know React" probe — be solid here.* ⚠️ **Not cold yet** — you got to the mechanism in a prep session (below) but only with prompting. Drill this until you can say it unprompted.
+
+**🔧 Worked example — debounced search with `useEffect` cleanup:**
+```jsx
+useEffect(() => {
+  const timer = setTimeout(() => fetchResults(query), 300);
+  return () => clearTimeout(timer); // cleanup: fires before the *next* effect run
+}, [query]);
+```
+Every keystroke changes `query`, which re-runs the effect — but first React calls the cleanup from the *previous* run, clearing that pending `setTimeout`. So a burst of keystrokes only ever schedules one live timer at a time; only a pause in typing (300ms with no new keystroke) lets a `setTimeout` survive long enough to fire and trigger the fetch. That's the mechanism: cleanup isn't "on unmount only," it's "before every re-run of the effect."
 - **React 18 specifics** — automatic batching, `StrictMode`'s double-render in dev, and *awareness* of concurrent features (`useTransition`, Suspense). You don't need to have shipped these; knowing what they're for is enough.
 
 ### Hooks, state & data
 - Local state vs **Context** vs an external store (Redux/Zustand) vs a data layer (**React Query/TanStack**) — when each is warranted. "Prop drilling" is the problem Context solves.
 - Data fetching: loading / error / empty states, and **cancelling stale requests**.
-- `useMemo` / `useCallback` — what they do and, importantly, **when *not* to reach for them** (premature optimisation is a red flag they may bait).
+- `useMemo` / `useCallback` — what they do and, importantly, **when *not* to reach for them** (premature optimisation is a red flag they may bait). *Your "don't use without measuring" instinct is already right — the gap was just the labels. Straighten those out:*
+
+  | Hook | Memoizes | Useful for |
+  |---|---|---|
+  | `useMemo` | a **value** (result of a computation) | skipping an expensive recalculation between renders |
+  | `useCallback` | a **function reference** | keeping a stable prop identity — only pays off paired with a `React.memo` child, so it doesn't re-render on every parent render |
+  | `useEffect` | *(nothing — different tool)* | **side effects** after render (fetch, subscribe, timers) — not a memoization hook at all, don't lump it in with the other two |
+
+  Say it as: "`useMemo` caches a value, `useCallback` caches a function, `useEffect` isn't memoization at all — it's for side effects. And I wouldn't reach for the first two without measuring; they have their own overhead."
 - Writing a **custom hook** and why you'd extract one.
 
 ### TypeScript (also a named requirement)
@@ -338,6 +494,8 @@ Years of real front-end work show regardless of framework:
 Being able to *compare* frameworks reads as senior. What transfers:
 - Custom elements → React components; templating → JSX; routing → React Router; lifecycle (`attached`/`bind`) → `useEffect`.
 - **The difference to state out loud:** Aurelia defaults to **two-way binding** and has **built-in DI**; React deliberately favours **one-way data flow** with no built-in DI (props/context/hooks). *"I found one-way flow makes state easier to reason about"* is a strong, specific line.
+- **Lifecycle/cleanup, verbatim:** *"In Aurelia, I'd use lifecycle hooks like `detached()` to clean up when the component unmounts — unsubscribe from observables, cancel pending requests. In React, that's what the cleanup function in `useEffect` does. Same discipline, different syntax."*
+- **Shared state/DI, verbatim:** *"In Aurelia, I'd use a shared service with dependency injection — inject it wherever I need it, no prop drilling. React doesn't have built-in DI, so Context fills that role."*
 
 **🔧 Real example:** Montana Aurelia gives you transferable material even though the framework's dated — a component you built, a tricky bit of state/binding, a data-grid or form. Confirm what's true and frame it as a *concept* ("component with local state driving a filtered list"), then say you've done the equivalent in React in DocIntel.
 
@@ -424,6 +582,11 @@ These are where "plain language, real problem" matters most. The interviewer isn
    - **N+1 queries** → `select_related` / `prefetch_related` in Django (eager-load instead of one query per row). *(Day-job tie-in now woven into the rehearsed answer below; full story in the Django ORM section.)*
    - **Missing index** → `EXPLAIN ANALYZE`, add the index.
    - **Over-fetching** → paginate; select only the columns you need. *(Two real examples: (1) your OLS fix — a service returning more data than the page needed. (2) SaunaGuide — the homepage loaded every listing on each request; I added `Paginator` (10/page) + HTMX infinite scroll (`hx-trigger="revealed"` sentinel) that returns only the next card partial. **And column-level:** for the map markers I switched to `.values(...)` specifically to avoid loading a heavy base64 `photo_data` image blob on every row — that's over-fetching **columns**, not just rows, which is the more sophisticated version of this answer.)*
+     - **A step further — is the blob's home the design smell, not just the query?** Storing large binary data (images, files) alongside relational metadata is a separate problem from column-level over-fetching, and worth naming if the conversation goes there. Options, in order of increasing complexity — pick the simplest that fits the data's size, count, and access pattern:
+       1. **Keep it in the DB** if it's small, there's one per row, and it's rarely fetched in bulk. *(SaunaGuide's own base64 `photo_data` is genuinely this case — a single web-optimized image per listing.)*
+       2. **Split into its own table** (e.g. a `ListingPhoto` table, FK back to `Listing`) once it's one-to-many — several images per row shouldn't live in columns on the parent.
+       3. **Move it to S3, keep only a URL column** once size or volume grows — decouples heavy file I/O from the DB entirely (mirrors the presigned-URL upload/download pattern elsewhere in this doc). Costs real operational overhead: lifecycle sync, orphaned files if a delete doesn't clean up both sides, per-request cost at scale, and consistency risk if the file and the DB record drift apart.
+       - **Say this:** *"Depends on the data's shape and scale — measure size, count, and access pattern, then pick the simplest thing that fits. A single small image per row can live right in the DB; one-to-many wants its own table; once volume or size grows, move the bytes to S3 and keep just a URL, accepting the sync/consistency overhead that comes with a second store."*
    - **Expensive computation on the request path** → cache it, or move it to a background task.
    - **Slow external call** → cache, set timeouts, or make it async.
 3. **The line to say:** *"I don't optimise blind — I measure, fix the biggest bottleneck, then re-measure."*
@@ -553,11 +716,13 @@ Match the tool to the need — lightest thing that works:
 
 **Core to lead with (3):** ask first — how likely is a conflict, how bad is losing an edit → optimistic (version column, cheap, nothing blocks) vs pessimistic (`select_for_update`, right call for money) → name last-write-wins as the rejected default, not an accident.
 
+**Model answer structure (this scored better live than a one-strategy answer):** name **both** strategies → state the real-world constraint that decides between them → give a day-job example of the strategy you *didn't* pick, for contrast → land on your pick and why. Structure > either answer alone.
+
 - **First question to ask out loud:** how likely is a conflict, and how bad is silently losing an edit? That decides the strategy.
 - **Optimistic locking** (conflicts rare): a `version` column; the update runs `WHERE id = ? AND version = ?`; zero rows updated means someone else won — return a conflict and let the user reload/merge. Cheap, nothing blocks.
 - **Pessimistic locking** (conflicts likely, or the update must be serialized): `select_for_update()` inside `transaction.atomic()` — the second writer blocks until the first commits. Right call for anything touching money or stock.
 - **Last-write-wins** is what happens if you do nothing — name it as a choice you're *rejecting*, not an accident.
-> **Say this:** *"First I'd ask: how likely is a conflict, and how bad is losing an edit? That decides the strategy. If conflicts are rare — optimistic locking: add a version column, and on save, UPDATE ... WHERE id = ? AND version = ?. Zero rows updated means someone else got there first — return a conflict and let the user reload. If conflicts are likely or the update must be serialized — pessimistic locking: select_for_update() inside a transaction, so the first user's lock blocks the second. My day job uses pessimistic for documents (checkout/checkin); for financial data, I'd lean pessimistic too."*
+> **Say this (strengthened, fund-admin-specific):** *"There are two strategies here. Optimistic — a version column, update `WHERE id = ? AND version = ?`, zero rows updated means someone else got there first. Pessimistic — `select_for_update()` inside a transaction, so the second writer blocks until the first commits. For fund administration specifically, I'd lean optimistic: this kind of record update is typically low-contention — conflicts are rare — so there's no reason to make every writer queue for something that will almost never collide. Contrast that with my day job, which is the opposite case: Propylon uses pessimistic check-out/check-in locking for legislative documents, because there conflicts are common — two drafters editing the same bill at once — and a merge would be meaningless, so we serialize instead. Same two tools, different constraint, different pick."*
 - **Front-end half:** send the version the user *loaded* along with their save; on a 409 show a conflict UI (reload / show what changed) instead of silently overwriting. Disabling the save button only prevents double-submit from the *same* user — it does nothing for two different users.
 
 **🔧 Real example (day job):** Montana runs *real* pessimistic locking — documents are **checked out / checked in** through the document service (`LockRecord`/`LockHistory` in the datastore), including from Word via the VSTO add-in. Two drafters silently merging edits to a bill is unacceptable, so the lock is explicit and held for the whole editing session — far longer-lived than a `select_for_update` row lock, same principle. **The line:** *"My day job literally runs on check-out/check-in locking — that's the pessimistic end of the spectrum, right for documents where a merge is meaningless. For rare, low-stakes conflicts I'd use an optimistic version check instead — no reason to make users queue when they'll almost never collide."* (Say "our document service", not the internal codenames.)
@@ -645,3 +810,6 @@ Match the tool to the need — lightest thing that works:
 - [ ] Can I explain **`useEffect`'s dependency array + cleanup** and one pitfall, cold?
 - [ ] Do I have the **Aurelia → React bridge** line ready (two-way binding + DI vs one-way flow), plus a real Montana example framed as a *concept*?
 - [ ] Can I explain **row virtualization / server-side row model** for large grids from DocIntel?
+- [ ] Have I actually **built** the debounced search in DocIntel with real `useEffect` cleanup — not just understood it in a prep session?
+- [ ] Have I actually written and timed a **`ThreadPoolExecutor`** example, not just described the concept?
+- [ ] Can I explain **why decorators beat calling a function directly** (avoiding repeated boilerplate across every view), not just define what a decorator is?

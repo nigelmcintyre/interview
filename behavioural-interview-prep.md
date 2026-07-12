@@ -76,6 +76,28 @@ The feature shipped as a self-contained end-to-end flow: user selects pages in t
 
 **Looking for:** translation skill — could you explain a technical constraint (e.g. why a data migration takes downtime) in terms a client or business user cares about? For Citco this maps directly to your world: fund accountants/clients who use the LRMS system but aren't engineers. Show you adapted the message, not just repeated jargon slower.
 
+**Story: budget bill versioning display (Propylon).** *Also covers: working with stakeholders, complex problem, creative solution.*
+
+**S — Situation**
+
+We'd built a budget bill versioning system — six version types, each with multiple versions, displayed as something like "type-number-version." Drafters found it confusing and wanted it simplified.
+
+**T — Task**
+
+The initial ask was to rework the versioning system itself — drop the version number entirely, one version per type. That meant rewriting significant code across the app, close to a session deadline, with real risk of breaking things.
+
+**A — Action**
+
+I dug into what was actually confusing them. The problem wasn't the data model — it was the display. The document view was cluttered with all those version details. So instead of rearchitecting, I suggested keeping the system as-is but hiding the version number in the document view: same data underneath, cleaner display for the user.
+
+**R — Result**
+
+They agreed. We got a quick win, avoided a risky refactor close to deadline, and the drafters got the clarity they actually needed. Lesson: diagnose what the stakeholder needs (clarity), not just what they ask for (simplification) — sometimes the answer is UI, not code.
+
+**🗣️ Spoken version (~60-90s), ready to rehearse at this length:**
+
+> *"Early in my Propylon work, we built a budget bill versioning system — six version types, each with multiple versions. Drafters found the naming confusing and wanted it simplified. The initial ask was to rework the versioning system itself, which meant rewriting significant code close to session deadline, with real risk. I dug into what was actually confusing them — turned out the problem wasn't the data model, it was the document display, which was cluttered with version details. So instead of a risky refactor, I suggested hiding the version number in the document view while keeping the underlying system unchanged. They agreed — quick win, no refactor risk, drafters got the clarity they needed. Lesson: diagnose what the stakeholder actually needs, not just what they ask for — sometimes the fix is UI, not architecture."*
+
 ### Initiative / improving a process or introducing a technology
 
 **Looking for:** did you spot the problem before someone told you to fix it, and did you justify the investment (why this tool/process, what was the cost of the status quo)? They want evidence you don't just execute tickets. Your DocIntel/Python upskilling angle fits here if you built something with it, not just learned it.
@@ -105,6 +127,8 @@ The feature shipped as a self-contained end-to-end flow: user selects pages in t
 ### Team collaboration
 
 **Looking for:** a concrete instance of making someone else more effective (unblocking, reviewing, pairing, filling a gap) — not just "we worked well together." They're listening for humility (crediting others) balanced with your specific contribution.
+
+providing prompt reviews for Nenad in version upgrade project, putting own work on hold
 
 ### Learning something new quickly
 
