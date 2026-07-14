@@ -1,7 +1,3 @@
-Here's the same treatment for **Databases** and **Cloud**.
-
----
-
 ## DATABASES
 
 ### 1. SQL vs NoSQL

@@ -1,4 +1,4 @@
-Here's the same treatment for the ## TECH DESIGN SCENARIOS
+## TECH DESIGN SCENARIOS
 
 **Universal structure for all of these:** diagnose → options → tradeoff → what I'd pick. Name the Python/DB tool as you reach for it — "this is I/O-bound, so..." / "I'd EXPLAIN ANALYZE first..."
 

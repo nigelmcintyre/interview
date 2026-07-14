@@ -42,35 +42,45 @@ I set up a dummy public member on a dummy interim committee in a dev/test enviro
 
 Fixed by removing the `removedPublicMembers` hard-delete path entirely — public member removal now goes through the same `CommitteePosition`-only deletion as every other member type, scoped correctly to the one committee. I used the same change to add drag-and-drop for adding public members to a committee, since I was already in that code. Ticket resolved, and the fix removed a live data-loss risk rather than just patching the symptom.
 
+**🔥 Likely pushback**
+
+- **Q: Why did that hard-delete special case exist in the first place — was it intentional?** A: I didn't dig into the original commit history — the priority was closing the live data-loss risk, not archaeology. My best guess is it was written for a genuinely different use case (deleting a public member's account outright) and got wired into the wrong removal flow. Worth a follow-up ticket, not worth blocking the fix on.
+- **Q: How did you know your fix wouldn't break some other flow relying on that cascade?** A: Every other member-type removal in the same function was already doing the `CommitteePosition`-only deletion — mine was the outlier, not the norm. Making public members match the existing pattern was lower-risk than the special case ever was.
+- **Q: This sounds like exactly the kind of thing a unit test should catch. Why wasn't there one?** A: There wasn't coverage on the `removedPublicMembers` path specifically, which is exactly how it shipped and survived. That's a real gap I'd own, not explain away.
+
 ### Ownership end-to-end
 
 **Looking for:** did you drive it from ambiguous ask to production, including the unglamorous parts (deployment, monitoring, telling stakeholders it's done)? They're checking you don't need a project manager assigning you sub-tasks. Mention a point where you made a judgment call without waiting for permission.
 
-**Story: condensed amendment PDF (Propylon).** From the bill draft request portal, depending on the state of the amendment request in its process (is in final review), allow the user to create a PDF version of the amendment document with only the pages they choose.
+**Story: tabbed-table HTML export (Montana).** The Word add-in's bill export was losing column alignment for "tabbed tables" — legislative content (e.g. appropriations tables) built from paragraphs with runs of tab characters rather than real Word tables — so exported HTML rendered them as mangled, unaligned text.
 
 **S — Situation**
 
-The legislative drafting team was manually producing "condensed" amendment PDFs: open the Word document, File → Print → Microsoft Print to PDF, manually select page 1 plus whatever pages the committee needed, save it next to the original file. Their downstream automation then picked it up. The ask came in as "can you automate this?" — no spec, no wireframe, just that sentence and a manual process to observe.
+Bill exports from the Word add-in (`mt-bde-law-making`) render real `Word.Table` objects into HTML fine, but tabbed pseudo-tables — used throughout appropriations bills — collapsed into flat, misaligned text on export. No one had specified a fix; it surfaced as a gap I found while working the export pipeline.
 
 **T — Task**
 
-I owned the feature end-to-end across a Django web app (BDR) and a VSTO Word add-in (BDE). My job was to go from that ambiguous ask to a working, integrated feature — including figuring out the architecture, writing the spec, and building both sides.
+I owned it end-to-end across two systems: the C# Word add-in and the Python document API (`mt-doc-api`) it talks to — architecture, detection logic, conversion logic, and the splice back into the export, plus the tests and rollout safety net.
 
 **A — Action**
 
-The first judgment call was PDF generation strategy. The obvious route was server-side conversion (LibreOffice headless), but I identified early that Word's pagination engine and the manual output had to match exactly — these are legal documents, and a line wrapping differently on page 4 would matter to a committee. I decided to route generation through the VSTO add-in instead, using Word's own print engine. That decision wasn't in any requirements doc; I made it and moved on.
+The first judgment call was where the work should live. I split it: detection stays in C#, conversion happens in Python. The add-in already walks paragraphs section-by-section and already has `Word.Range.WordOpenXML` to hand off a self-contained XML fragment per table, so C# keeping ownership of "where are the tables" avoided duplicating that section-boundary logic in Python and kept the Python side a pure, unit-testable `fragment → html` converter with no document-model coupling.
 
-The second architectural problem was communication. The `ms-word:` URI scheme that launches Word can't carry custom parameters, so I couldn't just pass page numbers in the URL. I traced how the existing combo-amendment feature solved the same problem: it writes structured data into the docx as custom XML properties, and the add-in reads them on document open. I extended that pattern — added two new ContentFields to the model (`CONDENSEDPAGES`, `CONDENSEDCREATED`), wrote a Django view that validates the user's page spec, canonicalises it (always include page 1, dedup, sort), writes it into the docx metadata, and returns the Word launch URI. The add-in reads the fields on open, generates the PDF, and sets `CONDENSEDCREATED=true` so it doesn't re-run on incidental re-opens.
+The second problem was detection itself — there's no dedicated paragraph style marking these as tables, so it has to be structural. "Any paragraph containing a tab" false-positives on ordinary statute text like `(i)\ttext`. I pulled real bill samples and found the actual dividing line: rows have ≥2 interior tab groups, certification lines and statute paragraphs don't. I pinned that rule against both a positive and negative real-world sample before writing the parser.
 
-On the front end I added a gated toggle to the existing Create AIC dialog — enabled only when the amendment is at Final Drafter Review or To Committee — with client-side validation (Bootstrap validator pattern attribute) and a tooltip showing the expected format. The form's action URL swaps dynamically depending on which toggle is active.
+The highest-stakes call was correctness, not architecture: these documents carry amendment marking — strike/underline for legal insertions and deletions — entirely through character styles, not run properties. A converter that ignored that would silently delete legally meaningful markup. I mapped the specific style names to the same span markup the existing real-table export path already emits, rather than inventing a new representation.
 
-One unglamorous catch I found during testing: `MetadataManager.getMetadataValue` throws an exception when a property is absent rather than returning an empty string. Existing AICs in the datastore wouldn't have my new fields. I added explicit initialisation of both fields to `""` when any AIC is created, so the add-in always finds them present. That's the kind of thing that would have surfaced as a silent crash in production on a doc nobody had regenerated.
-
-For the automation log — another thing that wasn't in the ask — I noticed that writing the PDF into the datastore creates an LrmsRevision, which is exactly what the team's existing copy automation monitors. No extra instrumentation needed; the trigger was already there by construction.
+Throughout, I kept the change reversible: the whole feature sits behind a flag, and if the API call fails for any reason the export falls back to the old (visually broken but functioning) behavior — an export must never fail because of this feature. I also required the toggle-off path to produce byte-identical output to pre-change exports, as a standing regression guard.
 
 **R — Result**
 
-The feature shipped as a self-contained end-to-end flow: user selects pages in the browser, Word opens, PDF appears next to the docx, automation picks it up — no manual steps remaining. I wrote the full cross-system spec for the C# side so the add-in work could proceed in a separate session without re-deriving the architecture decisions.
+Shipped. Tabbed tables now render as proper HTML tables — same CSS classes and structure as real Word tables, so the two are visually indistinguishable in the export — while the existing real-table export path and non-participating exports were verified unchanged.
+
+**🔥 Likely pushback**
+
+- **Q: Why route through the add-in instead of a standalone headless docx→html converter?** A: The add-in already has Word's own view of the document — section bookmarks, ranges, revision state — for free. Rebuilding that from raw XML in a headless parser risked drifting from what the actual export produces. Piggybacking on the add-in's existing structure kept detection and export in sync by construction.
+- **Q: What happens if `mt-doc-api` is slow or down mid-export?** A: The POST has its own short timeout, separate from the general HTTP client timeout, and any failure — timeout, 5xx, network — falls back to the pre-existing output. The feature can only fail *open* onto the old rendering, never fail the export itself.
+- **Q: That ≥2-tab-groups heuristic sounds fragile — what if a real bill breaks it?** A: It's a heuristic tuned against real samples, not a proof, and I know that. That's why a misdetected or malformed table surfaces as a per-table warning and falls back to the old rendering for just that table — not a silently wrong legal document. Fail visibly and locally was the deliberate design choice.
 
 ### Non-technical / cross-functional stakeholders
 
@@ -94,6 +104,11 @@ I dug into what was actually confusing them. The problem wasn't the data model �
 
 They agreed. We got a quick win, avoided a risky refactor close to deadline, and the drafters got the clarity they actually needed. Lesson: diagnose what the stakeholder needs (clarity), not just what they ask for (simplification) — sometimes the answer is UI, not code.
 
+**🔥 Likely pushback**
+
+- **Q: What if the data model really had been the problem — how would you have known?** A: I checked their specific complaints against the actual data before proposing anything — each one traced to what was shown on screen, not to a case where two versions were genuinely indistinguishable underneath. If I'd found that case, the UI fix wouldn't have been enough and I'd have said so.
+- **Q: Did anyone push back that hiding it in the UI felt like papering over the real issue?** A: Not really — once it was clear the model wasn't changing and this was purely about what's displayed, it was an easy yes given the deadline. If they'd wanted the number gone from the data too, that stayed on the table as later, non-urgent work.
+
 **🗣️ Spoken version (~60-90s), ready to rehearse at this length:**
 
 > *"Early in my Propylon work, we built a budget bill versioning system — six version types, each with multiple versions. Drafters found the naming confusing and wanted it simplified. The initial ask was to rework the versioning system itself, which meant rewriting significant code close to session deadline, with real risk. I dug into what was actually confusing them — turned out the problem wasn't the data model, it was the document display, which was cluttered with version details. So instead of a risky refactor, I suggested hiding the version number in the document view while keeping the underlying system unchanged. They agreed — quick win, no refactor risk, drafters got the clarity they needed. Lesson: diagnose what the stakeholder actually needs, not just what they ask for — sometimes the fix is UI, not architecture."*
@@ -109,12 +124,22 @@ They agreed. We got a quick win, avoided a risky refactor close to deadline, and
 - **A** — Defined what an actionable ticket needs (logs, affected files, exact replication steps, full-screen screenshots) and got that baked into how clients raise tickets, so the information arrives up front instead of being chased afterwards.
 - **R** — Far less back-and-forth with the client; tickets arrive actionable and investigation starts immediately instead of after a clarification cycle.
 
+**🔥 Likely pushback (Story A)**
+
+- **Q: How did you get clients to actually comply, rather than keep submitting screenshots?** A: It wasn't a technical gate — it needed the support process to actually push back and ask for the missing pieces the first few times before it stuck. Adoption wasn't instant; it held because unactionable tickets got bounced back instead of triaged anyway.
+- **Q: Do you have a number on the reduction in round-trips?** A: No hard metric — it was clearly noticeable to the team from fewer "please provide more information" replies, but if pushed for a figure I don't have one. Fair gap in this story.
+
 **Story B — introducing a technology: AI-assisted coding practices (Montana).**
 
 - **S** — The team was adopting AI coding assistants (Copilot / Claude) ad hoc — no shared conventions, so the tools gave verbose, unfocused output and occasionally did damage, like editing VS autogenerated designer code in the VSTO project, which leads to unexpected results.
 - **T** — Make the tooling reliable and cheap enough to be worth using, rather than each person burning credits re-explaining context every session.
 - **A** — Introduced instruction files (copilot-instructions / claude.md) encoding how the assistant should work: concise by default, verbose only when necessary (caveman rule); never touch VS autogenerated code like designer files; follow our coding styles. Used graphify to generate an index map of the codebase architecture so the assistant navigates instead of re-reading everything, with a rule to prompt me to regenerate it after structural changes.
 - **R** — The team burned through their credits much slower, and the assistant's output became safer and more consistent — no more designer-file edits.
+
+**🔥 Likely pushback (Story B)**
+
+- **Q: How do you know the instruction files caused the improvement, rather than the team just getting better with the tools over time?** A: Can't fully separate the two — some of it is a natural learning curve. But the designer-file damage stopped right after we added the explicit "never touch autogenerated code" rule, and that before/after is distinct enough that I'm confident the instruction file did real work, not just general familiarity.
+- **Q: What's the actual before/after on credit usage?** A: Observed via usage/billing visibility, not a formal study — no clean chart. Directional result I'm confident in, wouldn't oversell as rigorously measured.
 
 ### Prioritising under competing deadlines
 
@@ -124,11 +149,50 @@ They agreed. We got a quick win, avoided a risky refactor close to deadline, and
 
 **Looking for:** that you can articulate the alternatives you didn't pick and why, own the outcome (including if it was imperfect), and show judgment under uncertainty/incomplete information. This is the one where "and it worked out great" answers feel weakest — a tradeoff with a real cost you accepted is more convincing.
 
+**Story: PDF generation strategy for condensed amendments (Propylon).** Within the same condensed-amendment PDF feature (see Ownership end-to-end) — the choice of *how* to generate the PDF, fidelity vs. simplicity.
+
+- **S/T** — The feature needed to turn a Word document into a PDF containing only selected pages. Two real options: server-side headless conversion (LibreOffice), or routing generation through the VSTO add-in using Word's own print engine.
+- **A** — LibreOffice was the obvious architecture: synchronous, no client dependency, fully automatable, batchable, and simpler to build and operate. But these are legal documents, and the existing manual process the team was replacing used Word's own print engine — its pagination is the source of truth. LibreOffice re-flows text differently, so a line wrapping onto a different page could change what a committee is looking at. I judged that risk as unacceptable for a legal artifact and chose the Word-based route instead, even though it was architecturally more expensive.
+- **The cost I accepted** — routing through Word made everything downstream harder: the `ms-word:` launch URI can't carry parameters, so I had to smuggle the page selection into the docx as custom XML metadata for the add-in to read on open; generation now depends on the user's machine having Word and the add-in installed; and the whole flow became asynchronous and non-batchable from the server's point of view, which meaningfully increased the scope of the C# side of the spec I had to write.
+- **R** — The generated PDFs were pixel-for-pixel products of the same engine the manual process used, so committees and downstream automation saw zero difference, and the feature shipped without a fidelity dispute ever surfacing. The tradeoff was complexity and automatability given up for correctness on a legal document — not a free win.
+
+**🔥 Likely pushback**
+
+- **Q: Did you actually test LibreOffice and observe pagination drift, or was this a prediction?** A: I didn't build a LibreOffice prototype to compare — the call was based on knowing Word's and LibreOffice's rendering engines are different implementations of the same spec, on a document type where the committee treats the Word-produced manual output as ground truth. I judged the risk of even one pagination mismatch as unacceptable rather than proving it would happen; testing it would have de-risked the call further if I'd had the time.
+- **Q: Doesn't requiring Word on the user's machine just push the same fragility onto every drafter's desktop?** A: Yes, and I accepted that deliberately. But the environment already assumed every drafter has Word open with the add-in installed for the rest of their workflow — I was extending an existing dependency, not introducing a new one.
+- **Q: What if the client had insisted on a fully server-side, no-desktop architecture?** A: Then the answer changes — either accept some pagination risk with LibreOffice and add heavier verification (page-count or diff checks against the Word original), or look at licensed server-side Word automation. I didn't have to make that call here because the desktop-Word dependency was already a given.
+
 ### Team collaboration
 
 **Looking for:** a concrete instance of making someone else more effective (unblocking, reviewing, pairing, filling a gap) — not just "we worked well together." They're listening for humility (crediting others) balanced with your specific contribution.
 
-providing prompt reviews for Nenad in version upgrade project, putting own work on hold
+**Story: unblocking the HB2 HTML-to-Word conversion (Montana).** HB2 is a standalone, long-running project — a full drafting process for the appropriations bill (C# drafting, amendments, engrossment, conflict reports) plus a Python API converting the Finance department's HTML budget tables into a Word document. It's a different project from the codification tabbed-table export in Ownership end-to-end (that one runs docx→html for every bill; this one is html→docx, one-off, for HB2 only) — opposite conversion direction, no shared code.
+
+**S — Situation**
+
+A colleague building that html→docx conversion hit a wall: the Finance department's tables needed to reproduce the legislature's traditional tab-aligned appropriations layout once opened in Word, not render as an HTML `<table>`. Neither a real `<table>` nor literal tab characters in the source survived Word's import — they got lost or reflowed. He was fully stuck on it.
+
+**T — Task**
+
+Nobody assigned me this — I stepped in on his blocker because it was going to stall the whole conversion pipeline he'd already built.
+
+**A — Action**
+
+I went looking specifically for how Word represents a tab when it parses HTML, rather than guessing. Saving a tab-aligned document as HTML from Word and diffing it against a plain HTML table surfaced Word's own proprietary style hints — Microsoft's `mso-*` CSS dialect that only Word's HTML importer interprets. The specific property was `mso-tab-count`: a style on a `<span>` that tells Word to insert a literal tab character at that point, invisible in a normal browser. I wrapped it into a small reusable element (`get_tab_count_element()`) that dropped straight into the conversion logic he'd already written, wherever a column boundary needed to become a real Word tab instead of a `<td>`.
+
+**R — Result**
+
+Fully unblocked him — that one property became the load-bearing mechanism the entire HB2 table conversion depends on today. HB2 went live in production for the 2025 legislative year, and we were both named and recognized by Propylon's SVP for the work.
+
+*(That colleague is also who referred me to this interview — good context for you, not necessarily a line to say out loud unless it comes up naturally.)*
+
+**🔥 Likely pushback**
+
+- **Q: Why hadn't your colleague found it already — does this undersell his contribution?** A: He'd already built the entire row, cell, and department-header structure — that's the hard part, and it was solid. This was one narrow corner of Word's proprietary HTML dialect neither of us had reason to have hit before; I got there because I specifically went looking for "how does Word represent a tab in HTML," not because his approach was wrong.
+- **Q: Was this really collaboration, or you solving his problem solo?** A: I was working his blocker in direct response to being stuck alongside him at that point in the project, and the fix plugged straight into the pipeline he'd already built — it's his code, my missing piece.
+- **Q: How do you know `mso-tab-count` was the right fix and not a hack?** A: It's a real, if obscure, part of Word's own HTML/CSS extension set, not a workaround — confirmed against Microsoft's published HTML/CSS extensions reference, and it's been the stable mechanism in production since.
+
+**Alternate (thinner, keep as backup):** providing prompt reviews for a colleague during an important version-upgrade project, putting my own work on hold to do it — solid "made someone else more effective" shape, but no S/T/A/R detail or result behind it yet.
 
 ### Learning something new quickly
 

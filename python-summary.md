@@ -1,4 +1,4 @@
-Here's the same treatment for the **Python** section — what to say, real examples, and likely pushback for each topic.
+**Python** section — what to say, real examples, and likely pushback for each topic.
 
 ---
 
