@@ -166,7 +166,7 @@ They agreed. We got a quick win, avoided a risky refactor close to deadline, and
 
 **Looking for:** a concrete instance of making someone else more effective (unblocking, reviewing, pairing, filling a gap) — not just "we worked well together." They're listening for humility (crediting others) balanced with your specific contribution.
 
-**Story: unblocking the HB2 HTML-to-Word conversion (Montana).** HB2 is a standalone, long-running project — a full drafting process for the appropriations bill (C# drafting, amendments, engrossment, conflict reports) plus a Python API converting the Finance department's HTML budget tables into a Word document. It's a different project from the codification tabbed-table export in Ownership end-to-end (that one runs docx→html for every bill; this one is html→docx, one-off, for HB2 only) — opposite conversion direction, no shared code.
+**Story: unblocking the HB2 HTML-to-Word conversion (Montana).** HB2 is a standalone, long-running project — a full drafting process for the appropriations bill (C# drafting, amendments, engrossment, conflict reports) plus a Python API converting the Finance department's HTML budget tables into a Word document. 
 
 **S — Situation**
 
