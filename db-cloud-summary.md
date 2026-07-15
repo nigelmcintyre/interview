@@ -87,3 +87,39 @@ Be honest here — hands-on cloud is limited (Azure AD SSO at Irish Life; Docker
 **Answer:** *"RDS runs a standby replica in a different availability zone. If the primary fails, RDS automatically promotes the standby to primary and redirects connections to it — typically within a minute or two. The application doesn't need custom failover logic; RDS handles the detection and switch."*
 
 ---
+
+## AI — RAG pipeline, tokenisation
+
+### RAG (Retrieval-Augmented Generation)
+
+**What to say:** *"LLMs hallucinate and don't know your private documents — they're frozen at training time. RAG solves that by grounding the answer in your actual data: embed the user's question into a vector, run a similarity search over your document chunks to find the most relevant ones, feed those chunks into the LLM's prompt as context, and the model generates an answer from that context — ideally with citations back to the source documents. It's not fine-tuning the model, it's giving it the right information at query time."*
+
+**Real example — DocIntel:** *"I built this in DocIntel — pgvector for the retrieval side, storing embeddings alongside the document metadata in Postgres, and an LLM for the synthesis step. The reason I picked pgvector specifically rather than a dedicated vector database like Pinecone or Chroma is it keeps retrieval inside the same Postgres instance as the rest of the document metadata — no second system to sync and operate, same principle as reaching for Postgres full-text search before Elasticsearch."*
+
+**Likely pushback:** *"Walk me through what happens end-to-end when a user asks a question."*
+**Answer:** *"The question gets embedded into a vector using the same embedding model that indexed the documents. That vector is compared against the stored document-chunk vectors using a similarity metric — cosine similarity, typically — to find the closest matches. The top N chunks get pulled and inserted into the prompt alongside the user's question, with instructions to answer only from that context. The LLM generates the answer, and I'd return the source chunks alongside it so the user can verify — that's the citation piece, and it's what actually makes RAG trustworthy rather than just another way to hallucinate confidently."*
+
+**Likely pushback:** *"What if the similarity search returns irrelevant chunks — how do you handle that?"*
+**Answer:** *"A few levers: tune the number of chunks retrieved and a similarity-score threshold so weak matches get dropped rather than forced into the prompt. You can also ask the LLM to say 'I don't have enough information' rather than force an answer from bad context — that's part of the responsible-AI piece the spec asks about. And chunk size matters a lot here too small and you lose surrounding context, too large and irrelevant text dilutes the actually-relevant part."*
+
+**Likely pushback:** *"Why not just put the entire document corpus in the prompt instead of doing retrieval?"*
+**Answer:** *"Context window and cost — even large context windows have limits, and every token costs money and adds latency. Retrieval means you're only paying for and processing the handful of chunks actually relevant to this specific question, not the whole corpus every time. It also tends to produce better answers, because irrelevant context can actively distract the model from the right answer, not just sit there unused."*
+
+---
+
+### Tokenisation
+
+**What to say:** *"LLMs don't process words or characters directly — they process tokens, which are subword units, roughly four characters each in English on average, produced by byte-pair encoding. That matters practically in three ways: the context window is measured in tokens, not words or characters, so 'how much can I fit in the prompt' is a token count; cost is billed per token, both input and output; and it drives your chunking strategy — how big each retrieved chunk is has to account for how many tokens it actually costs, not just how many words look reasonable."*
+
+**Real example:** *"This is the practical decision behind DocIntel's chunking — I have to size chunks in terms of tokens the embedding model and the LLM will actually consume, not just eyeball a paragraph length."*
+
+**Likely pushback:** *"Why subword tokens instead of just whole words?"*
+**Answer:** *"Whole-word tokenization would need an enormous vocabulary to cover every word, including rare ones, typos, and words in other languages — and it can't handle a word it's never seen. Subword tokens let the model represent any word by combining known pieces — so an unfamiliar word just becomes more tokens, rather than an unknown/broken token. It's a tradeoff between vocabulary size and sequence length."*
+
+---
+
+### The honest bridge (your prepared line — use it as-is)
+
+*"I built RAG against the Anthropic API in DocIntel — the pattern is identical to Bedrock, it's the same retrieve-then-generate architecture, just a different provider's invocation API underneath. I understand the mechanics because I've actually built the retrieval and synthesis pipeline, not just read about the concept — picking up Bedrock specifically would be learning a new SDK for a pattern I already know."*
+
+**Why this line matters:** the AI section in your prep doc is intentionally kept brief compared to Python/DB — this is a smaller, "nice to have" surface area on the Citco spec relative to backend fundamentals, but it's also your most direct, honest differentiator since you've actually *built* it rather than just read about it. Lead with the DocIntel specifics, don't over-elaborate on theory you haven't touched (fine-tuning, agentic frameworks beyond what you've built) — stay inside what you can defend under a follow-up.
