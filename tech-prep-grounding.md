@@ -645,8 +645,8 @@ Grepped for `pgvector`, `embedding` (real hits were false positives — DRF's
 "embed a field" terminology, not ML embeddings), `openai`, `anthropic`,
 `langchain`, and `LLM` across all first-party `.py` files — zero genuine
 matches anywhere in the Montana/Propylon monorepo. This is entirely outside
-this codebase; keep the DocIntel/RAG story as a separate, honest "I built
-this elsewhere" narrative rather than trying to anchor it here.
+this codebase; RAG and AI-retrieval patterns are a separate story to learn
+conceptually rather than anchoring to Montana or to incomplete personal projects.
 
 ---
 
@@ -673,10 +673,10 @@ directly support two of these scenarios if you want to reuse them.
 
 - **EXPLAIN ANALYZE** — no code footprint anywhere; go run it once on a real
   query before the interview, per the prep doc's own advice.
-- **AI / RAG / tokenisation** — entirely absent from this monorepo; keep as a
-  separate DocIntel story, don't anchor it here.
+- **AI / RAG / tokenisation** — entirely absent from this monorepo; learn
+  conceptually and build hands-on before claiming production experience.
 - **JSONB specifically** (as opposed to JSON-as-string) — the doc's suggested
-  SaunaGuide/DocIntel JSONB angle does not exist in this repo; the closest
+  SaunaGuide JSONB pattern does not exist in this repo; the closest
   thing (`joplin.JsonField`) serializes to a string column, not native
   Postgres JSONB.
 - **GIN / GiST / BRIN indexes** — none found; only standard B-tree
@@ -833,12 +833,12 @@ either. A `src/cm/types/` directory in `ci_webapp` looked promising but is
 just plain-JS enum-like classes (`AllPositionsValuesType extends ValuesType`)
 — naming convention, not TypeScript. **Say this plainly rather than
 stretching it:** *"Montana's front end predates our TypeScript adoption —
-it's plain ES6/Babel. My TypeScript is entirely from DocIntel."* Don't try to
+it's plain ES6/Babel. TypeScript is a skill gap I'm actively working to close."* Don't try to
 force a bridge here; there isn't one.
 
 ---
 
-### MUI & AG Grid (spec nice-to-haves — DocIntel is your evidence)
+### MUI & AG Grid (spec nice-to-haves — understand the concepts, be honest about hands-on exposure)
 
 ⚠️ **WEAK/PARTIAL — a hand-rolled grid exists, and it's a genuinely good
 concept-level bridge, but it is not AG Grid and you didn't write it.**
@@ -875,15 +875,14 @@ plain `<table>` with `repeat.for` over the full dataset, so it would not
 hold up on a large dataset. That's an honest, useful line: *"I've worked with
 a hand-rolled data-grid component that mirrors AG Grid's column-definition
 and cell-renderer concepts at a basic level, but without virtualization or
-built-in sorting/filtering — which is exactly why AG Grid's row model and
-virtualization story is the differentiator I lean on from DocIntel."*
+built-in sorting/filtering — which is exactly why understanding AG Grid's row model and
+virtualization story matters, even though I haven't built with it hands-on yet."*
 
 **Whose code:** `git log` → Brendan Salmond, Wendel Silva. Not yours.
 
 **MUI:** ❌ **NO EQUIVALENT.** No component-theming library in either
 Aurelia app (styling is hand-written Bootstrap/SCSS — see Styling below).
-Nothing here bridges to MUI's `sx` prop or theming; keep that entirely a
-DocIntel story.
+Nothing here bridges to MUI's `sx` prop or theming; this is a skill gap worth studying before the interview.
 
 ---
 
@@ -1151,7 +1150,7 @@ scoping, or Shadow DOM if using true web components."*
 ## Front-End summary — topics with NO Montana example (learn conceptually)
 
 - **TypeScript** — confirmed absent from both Montana front ends entirely;
-  this is purely a DocIntel story.
+  learn conceptually and build hands-on to close this gap.
 - **AG Grid specifically** — no library usage found; the closest thing is a
   hand-rolled `<cm-grid>` with no virtualization/sorting/filtering (cited
   above as a partial concept bridge, not a substitute).

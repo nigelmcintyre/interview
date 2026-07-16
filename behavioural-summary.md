@@ -2,7 +2,7 @@
 
 ### Opening positioning line (use if asked "tell me about yourself" or to bridge CV vs history)
 
-**What to say:** *"Full-stack engineer, about five years — strongest in C#/.NET and financial-services software at Irish Life, plus document-systems work at Propylon across a Python/Django and Postgres backend. FastAPI, RAG, and the agentic side are newer to me, so rather than just claim the keywords, I built DocIntel end-to-end to actually understand it. I'd rather tell you what I built and where it's rough than oversell it."*
+**What to say:** *"Full-stack engineer, about five years — strongest in C#/.NET and financial-services software at Irish Life, plus document-systems work at Propylon across a Python/Django and Postgres backend. FastAPI and the data/AI side are newer to me, so rather than just claim the keywords, I've been building hands-on. I'd rather tell you what I've actually built and where I'm still learning than oversell it."*
 
 **Why it works:** referral-backed hire → they value real signal over polished claims. Their spec explicitly wants responsible-AI awareness and knowing limitations, so this honesty reads as strength, not weakness.
 
@@ -62,7 +62,7 @@
 
 ### 4. Initiative / introducing a technology or process
 
-**What they're scoring:** did you spot the problem before someone told you to fix it, and justify the investment? Evidence you don't just execute tickets. Your DocIntel angle fits here — if you can point to something you *built* with it, not just learned.
+**What they're scoring:** did you spot the problem before someone told you to fix it, and justify the investment? Evidence you don't just execute tickets. Back this with a real technical example, not just learning.
 
 **Story A — client bug ticket quality:**
 
@@ -124,7 +124,7 @@
 
 **What they're scoring:** your learning method under time pressure — how you scoped what to learn vs. skip, what resources you used — and *proof of application*, not just comprehension. A demo beats "I read the docs."
 
-**Your natural answer:** DocIntel itself is the proof — you scoped it specifically to close named gaps (FastAPI, RAG, modern React) rather than reading about them abstractly, and you can point to working code as the output.
+**Your natural answer:** I've been building hands-on with FastAPI and Postgres to close gaps from the traditional Django/Postgres work, scoping specifically on API design and database schema — topics I can immediately apply in a role like this. Real code and working endpoints, not just docs.
 
 ---
 
@@ -141,9 +141,9 @@
 
 ### Strengths / weaknesses / career goals
 
-**Strengths:** learns new tech fast and is eager to (DocIntel is the proof) · organised, juggles concurrent tasks · communicates well across technical and non-technical people. Back each with a one-line example.
+**Strengths:** learns new tech fast and is eager to · organised, juggles concurrent tasks · communicates well across technical and non-technical people. Back each with a one-line example.
 
-**Weakness, framed with a fix:** *"I like to fully understand why something works before I'm confident with it, so I front-load learning — which is exactly why I built DocIntel rather than just reading about RAG."*
+**Weakness, framed with a fix:** *"I like to fully understand why something works before I'm confident with it, so I front-load learning — which is why I'm building FastAPI/Postgres hands-on rather than just reading documentation."*
 
 **Career goals:** deepen technical range into new stacks (Python/FastAPI/AI is exactly that), more building from scratch and extending existing systems, moving toward designing/evaluating architectures.
 
@@ -161,7 +161,7 @@
 ---
 
 ### Quick cheat sheet
-- Lead with financial services + strong debugging/ownership; frame the AI stack as the gap you built DocIntel to close.
+- Lead with financial services + strong debugging/ownership; frame the data/API stack as what you're actively building toward.
 - Never claim past what you've built and understand — "I'm building X" is a strong, honest answer.
 - Primary troubleshooting story: public-member deletion bug. Mortgage-protection is backup.
 - Finish the customer-similarity story's ending before the interview.

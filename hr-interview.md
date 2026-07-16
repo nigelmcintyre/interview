@@ -6,7 +6,7 @@ I'm a full-stack developer with about five years' experience, mostly across C#/.
 
 At Propylon I work on a legislative document management system — a Python/Django application with JavaScript front ends, plus a legislative drafting Word add-in built in C#. So I spend a lot of my time on the seam between front-end authoring tools and backend asset management. Before that, my main experience was at Irish Life building .NET web apps and REST APIs for retail investment products, which is where I first worked in financial services.
 
-Over the last two years, seeing the increase in AI usage and how Python has become the main language for building AI-related tools, I've been deliberately deepening my Python and AI work — both at my job and through personal projects like my sauna directory website, and more recently a learning project called DocIntel: a RAG-based document retrieval service with FastAPI, PostgreSQL, and a React 18/TypeScript front end, with an agentic layer on top. It's my way of taking the document-systems experience I already have and rebuilding it in the modern stack I want to work in.
+Over the last two years, seeing the increase in AI usage and how Python has become the main language for building AI-related tools, I've been deliberately deepening my Python and backend work — both at my job and through personal projects like my sauna directory website, and more recently learning FastAPI with PostgreSQL backend design. It's my way of taking the document-systems experience I already have and building it in the modern Python/API stack I want to work in more of.
 
 ## Q2: Why Citco, why this role?
 

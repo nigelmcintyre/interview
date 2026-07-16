@@ -53,7 +53,7 @@
 
 **What to say:** *"Index the actual query paths, not everything — you're write-heavy here, and every index slows writes. Partition big tables by date, and use BRIN indexes for append-only, naturally time-ordered data. Bulk operations — `COPY` or `bulk_create` — never row-by-row inserts. Connection pooling so short-lived connections don't exhaust the DB. Read replicas for the analytics/reporting side. And I'd question the premise — does all of this actually need to live in the transactional database, or does analytics belong in a warehouse?"*
 
-**Real example — front end half, your strongest angle here:** *"You never render millions of DOM nodes — you virtualize, render only what's visible, and paginate server-side so the client only ever fetches what's on screen. AG Grid's server-side row model does exactly this, and I've built with it in DocIntel."*
+**Real example — front end half:** *"You never render millions of DOM nodes — you virtualize, render only what's visible, and paginate server-side so the client only ever fetches what's on screen. AG Grid's server-side row model does exactly this — I understand the pattern even though I haven't built with it hands-on yet."*
 
 **Likely pushback:** *"Why BRIN over a regular B-tree index for time-series data?"*
 **Answer:** *"BRIN is tiny compared to a B-tree because it stores value ranges per block instead of every row. It works well specifically because the data is naturally ordered by insertion time — append-only logs, timestamps. A B-tree would be far larger for the same query benefit on that shape of data."*

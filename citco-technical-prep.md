@@ -428,23 +428,23 @@ Be honest here: your hands-on cloud is limited (Azure AD SSO at Irish Life; Dock
 
 ## AI — RAG pipeline, tokenisation (briefly)
 
-- **RAG (Retrieval-Augmented Generation):** LLMs hallucinate and don't know your private documents. RAG **embeds the user's question → vector-similarity search over your document chunks → feeds the top matches into the LLM prompt → returns a grounded answer with citations** back to the source. You built this in DocIntel (pgvector for retrieval, LLM for synthesis) — speak from that.
+- **RAG (Retrieval-Augmented Generation):** LLMs hallucinate and don't know your private documents. RAG **embeds the user's question → vector-similarity search over your document chunks → feeds the top matches into the LLM prompt → returns a grounded answer with citations** back to the source. Understand the retrieval and synthesis pattern conceptually — this is a skill gap to close before the interview.
 - **Tokenisation:** LLMs don't process words or characters — they process **tokens** (subword units; roughly ~4 characters each in English, via byte-pair encoding). Why it matters practically: the **context window** is measured in tokens, **cost is per token**, and it drives your **chunking strategy** (how big each retrieved chunk is).
 
-Keep both brief; you've got the honest "I built RAG against the Anthropic API; Bedrock is the same invocation pattern" bridge from the behavioural doc.
+Keep both brief; RAG and AI are the learning gap you're actively closing before this role.
 
 ---
 
 ## FRONT-END — React 18 / TypeScript / MUI / AG Grid
 
-> Their list had no React questions, but React 18 + TypeScript is a **named requirement** and this is a **fullstack** role — expect it to be probed. Your day-job front end on Montana is **Aurelia**, which has faded from mainstream use, so *don't lean on it as a credential.* Extract the transferable concepts and bridge to React, which you've actually built in DocIntel.
+> Their list had no React questions, but React 18 + TypeScript is a **named requirement** and this is a **fullstack** role — expect it to be probed. Your day-job front end on Montana is **Aurelia**, which has faded from mainstream use, so *don't lean on it as a credential.* Extract the transferable concepts and bridge to React conceptually.
 >
-> **Honest frame:** *"Day-to-day on Montana I work in Aurelia — component-based, two-way binding, DI — so a lot of the concepts transfer. I've been building the React 18 side hands-on in DocIntel with TypeScript, MUI and AG Grid, deliberately, because it's the stack I want to be in."* (Consistent with credibility-first: real day-job front end + deliberate React upskilling, no overclaiming.)
+> **Honest frame:** *"Day-to-day on Montana I work in Aurelia — component-based, two-way binding, DI — so a lot of the concepts transfer. I'm building hands-on with React 18/TypeScript/MUI to close that gap before starting a role like this — it's the stack I want to be working in."* (Consistent with credibility-first: real day-job front end + deliberate upskilling, honest about what's still in progress.)
 
 ### React fundamentals (most likely to be asked)
 - **Props vs state**, and when you'd *lift state up*.
 - **Virtual DOM / reconciliation** — what it does, and why **keys** matter in lists.
-- **Controlled vs uncontrolled** components (form inputs). **DocIntel search box, reasoned out:** controlled — because you want to react to *every* keystroke (character count, styling, showing "typing…" state) while still deferring the *expensive* part (the actual fetch) to a debounce timer or a submit/Enter handler. Controlled input, cheap per-keystroke reactions, expensive action gated separately — that's the general shape of the answer, not just "controlled because forms are usually controlled."
+- **Controlled vs uncontrolled** components (form inputs). **Search box pattern, reasoned out:** controlled — because you want to react to *every* keystroke (character count, styling, showing "typing…" state) while still deferring the *expensive* part (the actual fetch) to a debounce timer or a submit/Enter handler. Controlled input, cheap per-keystroke reactions, expensive action gated separately — that's the general shape of the answer, not just "controlled because forms are usually controlled."
 - **Hooks** — what a hook is; walk `useState`, `useEffect`, `useContext`, `useRef`.
 - **`useEffect` in depth** — the dependency array, the cleanup function, and the classic pitfalls (infinite loops, stale closures, missing deps). *This is the #1 "do they really know React" probe — be solid here.* ⚠️ **Not cold yet** — you got to the mechanism in a prep session (below) but only with prompting. Drill this until you can say it unprompted.
 
@@ -477,9 +477,9 @@ Every keystroke changes `query`, which re-runs the effect — but first React ca
 - `interface` vs `type`; when generics earn their place.
 - **Why TS on the front end** — catching shape mismatches against the API contract. *Ties straight to your FastAPI/Pydantic backend typing story: typed end-to-end.*
 
-### MUI & AG Grid (spec nice-to-haves — DocIntel is your evidence)
+### MUI & AG Grid (spec nice-to-haves — understand deeply, be honest about hands-on exposure)
 - **MUI:** theming, the `sx` prop, overriding/customising components.
-- **AG Grid:** column definitions, cell renderers, sorting/filtering, and the big one — **client-side vs server-side row model and row virtualization for large datasets.** Few candidates have actually used AG Grid, so speak from what you built — it's a differentiator.
+- **AG Grid:** column definitions, cell renderers, sorting/filtering, and the big one — **client-side vs server-side row model and row virtualization for large datasets.** Few candidates understand the row model distinction well, so demonstrating that conceptually is a differentiator even without hands-on experience.
 
 ### Framework-agnostic front end (your real strength zone — lean in here)
 Years of real front-end work show regardless of framework:
@@ -497,7 +497,7 @@ Being able to *compare* frameworks reads as senior. What transfers:
 - **Lifecycle/cleanup, verbatim:** *"In Aurelia, I'd use lifecycle hooks like `detached()` to clean up when the component unmounts — unsubscribe from observables, cancel pending requests. In React, that's what the cleanup function in `useEffect` does. Same discipline, different syntax."*
 - **Shared state/DI, verbatim:** *"In Aurelia, I'd use a shared service with dependency injection — inject it wherever I need it, no prop drilling. React doesn't have built-in DI, so Context fills that role."*
 
-**🔧 Real example:** Montana Aurelia gives you transferable material even though the framework's dated — a component you built, a tricky bit of state/binding, a data-grid or form. Confirm what's true and frame it as a *concept* ("component with local state driving a filtered list"), then say you've done the equivalent in React in DocIntel.
+**🔧 Real example:** Montana Aurelia gives you transferable material even though the framework's dated — a component you built, a tricky bit of state/binding, a data-grid or form. Confirm what's true and frame it as a *concept* ("component with local state driving a filtered list"), then show how that same concept would work in React by walking through the pattern, not by claiming built experience you don't have.
 
 ---
 
@@ -789,12 +789,12 @@ Match the tool to the need — lightest thing that works:
 
 ### "We need search over a lot of records — how?"
 
-> **🧰 Python topics in play:** **Indices — GIN / tsvector** (Postgres full-text — your real DocIntel example) · **EXPLAIN ANALYZE** (prove why `ILIKE '%term%'` seq-scans) · **SQL vs NoSQL** (when a dedicated search engine earns a second data store).
+> **🧰 Python topics in play:** **Indices — GIN / tsvector** (Postgres full-text) · **EXPLAIN ANALYZE** (prove why `ILIKE '%term%'` seq-scans) · **SQL vs NoSQL** (when a dedicated search engine earns a second data store).
 
 - **Why naive search dies:** `ILIKE '%term%'` has no left-anchored prefix, so a B-tree can't help — every query is a sequential scan.
 - **Postgres full-text first:** `tsvector` column + **GIN** index — stemming, ranking, phrase search, zero new infrastructure. The right answer until requirements outgrow it.
 - **Elasticsearch / OpenSearch** when you need fuzzy matching, typo tolerance, faceting, or relevance tuning at serious scale — and name the cost: a *second system* you must keep in sync with the source of truth and operate.
-- **Say this:** *"I'd start with Postgres full-text and a GIN index — I've done exactly this in DocIntel — and only reach for Elasticsearch when requirements outgrow it, because it's a second data store to sync and run."*
+- **Say this:** *"I'd start with Postgres full-text and a GIN index — understand the pattern and EXPLAIN ANALYZE before the interview — and only reach for Elasticsearch when requirements outgrow it, because it's a second data store to sync and run."*
 - **Front-end half:** debounced input, cancel superseded requests (a slow response for "fun" must not overwrite results for "fund"), highlight matched terms.
 
 ---
@@ -802,14 +802,14 @@ Match the tool to the need — lightest thing that works:
 ## Quick pre-interview checklist
 - [ ] Can I explain the **GIL** and the CPU-bound vs I/O-bound decision in one breath?
 - [ ] Have I actually run **`EXPLAIN ANALYZE`** on a real query and seen a scan flip to an index?
-- [ ] Do I have **3–4 true Propylon (or DocIntel/Irish Life) examples** ready to attach to concepts — not invented?
+- [ ] Do I have **3–4 true Propylon (or Irish Life) examples** ready to attach to concepts — not invented?
 - [ ] For every scenario: **diagnose → options → tradeoff → my pick.**
 - [ ] Can I explain **optimistic vs pessimistic locking** (`version` column vs `select_for_update`) and say when each fits?
 - [ ] Can I give the **idempotency-key + unique-constraint** answer in two sentences, and say *why* duplicates are inevitable (retries + at-least-once queues)?
 - [ ] Am I bridging cloud/AI gaps **honestly** ("I've done X, the AWS version is the same pattern") rather than overclaiming?
 - [ ] Can I explain **`useEffect`'s dependency array + cleanup** and one pitfall, cold?
 - [ ] Do I have the **Aurelia → React bridge** line ready (two-way binding + DI vs one-way flow), plus a real Montana example framed as a *concept*?
-- [ ] Can I explain **row virtualization / server-side row model** for large grids from DocIntel?
-- [ ] Have I actually **built** the debounced search in DocIntel with real `useEffect` cleanup — not just understood it in a prep session?
+- [ ] Can I explain **row virtualization / server-side row model** for large grids conceptually?
+- [ ] Have I actually **practiced** the debounced search pattern with real `useEffect` cleanup — not just understood it in a prep session?
 - [ ] Have I actually written and timed a **`ThreadPoolExecutor`** example, not just described the concept?
 - [ ] Can I explain **why decorators beat calling a function directly** (avoiding repeated boilerplate across every view), not just define what a decorator is?
