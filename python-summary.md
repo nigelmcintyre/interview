@@ -8,24 +8,27 @@
 
 **What to say:** *"It all comes down to the GIL — in CPython, only one thread executes Python bytecode at a time. So for I/O-bound work — waiting on a network call, a DB, a disk read — threads help, because the GIL releases while a thread is blocked. For CPU-bound work — heavy computation, parsing — threads don't help at all, because the GIL means only one thread runs Python code regardless. That needs multiprocessing, separate processes with their own interpreter and GIL, giving true parallelism. Async is a third option for I/O-bound work at much higher concurrency — a single thread, one event loop, cooperative multitasking — but it requires async-aware libraries all the way down."*
 
-**Real example:** *"At Propylon, if there's CPU-heavy XML parsing of legacy `.doc` files, that's a multiprocessing story. If it's many API calls between the VSTO add-in and the Django backend, that's an I/O and threads story."* (Confirm which is actually true before using it.)
-
 **Likely pushback:** *"If threads can't run Python code in parallel, why do they help at all?"*
 **Answer:** *"Because the bottleneck isn't the Python code — it's waiting. While one thread is blocked on a network response, the GIL is released and another thread runs. The GIL only serializes actual bytecode execution, not I/O waiting."*
 
 **Likely pushback:** *"When would you choose threads over async for I/O-bound work?"*
 **Answer:** *"Threads are a bolt-on — you wrap existing blocking calls in a `ThreadPoolExecutor` with no rewrite. Async needs the whole stack to be async-aware — your HTTP client, DB driver, everything. If it's a handful of blocking calls, threads are simpler. If I need thousands of concurrent connections, async is the only thing that scales cheaply enough."*
 
-**Worked pattern to have ready** (you didn't know this cold today — practice it):
+**Real code example** — committee creation fans out three independent datastore writes in parallel:
 ```python
-from concurrent.futures import ThreadPoolExecutor
-
-with ThreadPoolExecutor(max_workers=3) as executor:
-    future_1 = executor.submit(call_api_1)
-    future_2 = executor.submit(call_api_2)
-    future_3 = executor.submit(call_api_3)
-    results = [f.result() for f in [future_1, future_2, future_3]]
+threads = [
+    WorkerThread(target=self.write_cmt_witnesses, args=(witnesses, committee)),
+    WorkerThread(target=self.set_committee_members, args=(committee_members, committee)),
+    WorkerThread(target=self.populate_meeting_committees, args=(meetings, committee)),
+]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
 ```
+*"We use a custom `WorkerThread` subclass that wraps exception handling, because standard `threading.Thread` doesn't propagate exceptions to the joining thread by default. It's I/O-bound — each thread waits on the datastore — so threads are the right choice, not multiprocessing."*
+
+([mt-cm-common-plugin/src/cm/cm_core/views/committee.py:141-168](../mt-cm-common-plugin/src/cm/cm_core/views/committee.py#L141-L168) — not authored by you, but real code in a package you work in.)
 
 ---
 

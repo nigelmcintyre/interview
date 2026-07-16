@@ -16,6 +16,9 @@
 **Likely pushback:** *"How do you decide between caching and background jobs for a slow external call?"*
 **Answer:** *"Depends on whether the result is reusable. If the same request repeats — same params, data doesn't change often — cache it. If it's a one-off action that just takes time, move it off the request path into a background job so the user isn't blocked."*
 
+**Likely pushback:** *"What if the slowness isn't one query, but several independent operations done one after another?"*
+**Answer:** *"Then parallelize them — if they're truly independent and I/O-bound, running them concurrently cuts latency from the sum of all of them down to the slowest one. In Python that's threads, not processes — I/O-bound work releases the GIL while waiting, so threading is the right tool. There's a real pattern like this in a committee-management codebase I work in: creating a committee needs three independent writes — witnesses, members, meetings — and instead of doing them serially, they're fanned out on three threads and joined before the response returns. I didn't author that class, but I work in that codebase and can walk through why threading over multiprocessing is the correct call there."*
+
 ---
 
 ### 2. "We want a feature that generates a big report"
