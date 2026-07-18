@@ -47,3 +47,68 @@ Pushback Qs
 - how determine timeout? Measure under normal circumstances plus buffer.
 - whats the risk with retries? All retry at once, try randomize retry after.
 
+# Python
+### 1. Concurrency - multithreading, multiprocessing, async
+- The Global Interpreter Lock (GIL) means that only one thread executes python bytcode at a time.
+- For small scale I/O bound work where while one threads waits, the GIL releases and another thread can continue
+- Example is committee creation, three threads initiate writes to DB for witnesses, committee members and meetings.
+- Is bolt on can wrap an existing blocking call in a ThreadPoolExecutor
+- while the first thread waits for DB write to complete, GIL is release and the next can execute.
+- For higher volume concurrency we use Async.
+- Requires async aware stack HTTP client, DB driver, can scale to thousands concurrent connections.
+- For CPU bound work parsing / computation can be done by multiple different processes.
+- Each process has their own interpreter and GIL true parallelism.
+- Celery worker is an example of a multiprocess.
+
+### 2. Types
+- Python is dynamically & strongly typed.
+- Types hints help for readability with tools like mypy but are not enforced.
+- The closest thing to enforced types is using Pydantic and FastAPI
+- Type hints are used to validate incoming data at function boundary, if it doesn't match your code doesn't execute.
+
+### 3. Mutable / Immutable
+- Immutable types cannot be changed after creation. int, float, str, tuple, frozenset
+- Mutable types list, dict, set and most custom objects can.
+- Mutable default arguments 'def add(item, items=[])' mean every time the method is called unless the default argument is defined in the call, it'll get shared between calls.
+- Fixed by setting default argument items=none and items = items or [].
+
+### 4. Scope - LEGB
+- Name lookup follows LEGB.
+- Assigning a variable anywhere in function makes it local for the whole function
+- At compile time python scans the whole function not in order
+- using a variable that is later assigned in the variable will cause UnboundLocalError
+- use nonlocal to use variable value from enclosing scope.
+
+### 5. Iterators -> Generators
+- An iterator is anything you call next() which advances its internal state.
+- A Generator is an interator under the hood yield pause and returns a value
+- On the next next() the generator picks up where it left off all localv variables intact.
+- Can use it to stream large data of unkown size, keeps memory usage flat QuerySet.Iterator(chunk_size(2000)).
+- Using list comprehension keeps whole list in memory, so we can get length and access data at will
+- But if huge list all memory would get used up.
+
+### 6. Garbage Collector
+- Python uses reference counters to know when to release memory.
+- When ref count of an object hits 0 it is rleased.
+- For objects that onhly reference eachother, uses periodic GC to releae newer objects, keeps older cyclic objects with references
+
+### 7. Decorators
+- Wrap a function in cross cutting concerns you want repeated on each call.
+- eg. auth, logging, FastAPI route registration handles parsing, validating, function call, serialising response.
+- reduces boilerplate, hides functionality. 
+- use functools.wraps to ensure the function keeps its name and docstring
+
+### 8. Context managers
+- 'with' guarantees setup and teardown. 
+- Use it for opening a file the file will close even if an exception occurs.
+- Djangos transaction.atomic() is a context manager.
+- Ensures all writes commit together or roll back together.
+- Mechanism behind concurrent-edits and duplicate requests.
+
+### 9. Middlewares / Signals
+- Are components in the request/response pipeline.
+- every request passes through them in the way in and in reverse order on the way out.
+- Auth, session management etc.
+- Signals are decoupled event notifications that allow a client to send a signals without know who is listening
+- like in validating a cached document records after a status change.
+
