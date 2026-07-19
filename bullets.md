@@ -2,9 +2,9 @@
 # TECH DESIGN SCENARIOS
 ### 1. "We have a slow API request — what do you do?"
 - Measure the request to find the bottlenecks
-- N+1 switch form lazy loading to eager using 'select_relate' / 'prefetch_related'
-- Use explain analyze on query, look for seq_search, add an index
-- Use seleted columns '.values()' or pagination instead of over-fetching (Saunaguide)
+- N+1 switch form lazy loading to eager using `select_related()` / `prefetch_related()`
+- Use EXPLAIN / ANALYZE on query, look for seq_search, add an index
+- Use seleted columns `.values()` or pagination instead of over-fetching (Saunaguide)
 - Move heavy computation to background worker
 - Cache expensive reusable responses
 - Make queries multithreaded if applicaple (Propylon committe creation writes witnesses, members, meetings with threads)
@@ -12,8 +12,8 @@
 ### 2. "We want a feature that generates a big report"
 - Don't generate report in the request
 - Offload to a celery worker, view enqueues and response with job id
-- Worker should stream the data using an .iterator() with a fixed chunck size so memory stays flat
-- finished file saves on to a S3 bucket, keyed by query params, doubles as a cache for identical queries
+- Worker should stream the data using an `QuerySet.iterator(chunk_size=2000)` with a fixed chunck size so memory stays flat
+- Finished file saves on to a S3 bucket, keyed by query params, doubles as a cache for identical queries
 - Client polls for status and receives presigned link when ready.
 
 ### 3. "We want real-time notifications / a live progress bar"
@@ -35,7 +35,7 @@ Pushback Qs
 ### 5. "Two users edit the same record at the same time"
 - Optimistic for when conflicts are rare.
 - Maintain version column to check if version has changed then flag conflict
-- Pessimistic for when conflicts are likely or unacceptable used in propylon
+- Pessimistic for when conflicts are likely or unacceptable used in propylon use `SELECT FOR UPDATE` to lock the row
 Pushback Qs
 - What should happen when optimistic conflict? UI show conflict or auto-merge non-overlaping fields
 - Could you combine both? Yes but complex
@@ -52,7 +52,7 @@ Pushback Qs
 - The Global Interpreter Lock (GIL) means that only one thread executes python bytcode at a time.
 - For small scale I/O bound work where while one threads waits, the GIL releases and another thread can continue
 - Example is committee creation, three threads initiate writes to DB for witnesses, committee members and meetings.
-- Is bolt on can wrap an existing blocking call in a ThreadPoolExecutor
+- Is bolt on can wrap an existing blocking call in a `with ThreadPoolExecutor()`(Context Manager)
 - while the first thread waits for DB write to complete, GIL is release and the next can execute.
 - For higher volume concurrency we use Async.
 - Requires async aware stack HTTP client, DB driver, can scale to thousands concurrent connections.
@@ -69,21 +69,21 @@ Pushback Qs
 ### 3. Mutable / Immutable
 - Immutable types cannot be changed after creation. int, float, str, tuple, frozenset
 - Mutable types list, dict, set and most custom objects can.
-- Mutable default arguments 'def add(item, items=[])' mean every time the method is called unless the default argument is defined in the call, it'll get shared between calls.
-- Fixed by setting default argument items=none and items = items or [].
+- Mutable default arguments `def add(item, items=[])` mean every time the method is called unless the default argument is defined in the call, it'll get shared between calls.
+- Fixed by setting default argument `items=none` and `items = items or []`.
 
 ### 4. Scope - LEGB
 - Name lookup follows LEGB.
 - Assigning a variable anywhere in function makes it local for the whole function
 - At compile time python scans the whole function not in order
 - using a variable that is later assigned in the variable will cause UnboundLocalError
-- use nonlocal to use variable value from enclosing scope.
+- use `nonlocal` to use variable value from enclosing scope.
 
 ### 5. Iterators -> Generators
-- An iterator is anything you call next() which advances its internal state.
+- An iterator is anything you call `.next()` which advances its internal state.
 - A Generator is an interator under the hood yield pause and returns a value
-- On the next next() the generator picks up where it left off all localv variables intact.
-- Can use it to stream large data of unkown size, keeps memory usage flat QuerySet.Iterator(chunk_size(2000)).
+- On the next `.next()` the generator picks up where it left off all localv variables intact.
+- Can use it to stream large data of unkown size, keeps memory usage flat `QuerySet.Iterator(chunk_size(2000))`.
 - Using list comprehension keeps whole list in memory, so we can get length and access data at will
 - But if huge list all memory would get used up.
 
@@ -94,14 +94,14 @@ Pushback Qs
 
 ### 7. Decorators
 - Wrap a function in cross cutting concerns you want repeated on each call.
-- eg. auth, logging, FastAPI route registration handles parsing, validating, function call, serialising response.
+- eg. auth, logging, FastAPI route registration handles parsing, validating, function call, serialising response `app.get('/documents')`.
 - reduces boilerplate, hides functionality. 
 - use functools.wraps to ensure the function keeps its name and docstring
 
 ### 8. Context managers
-- 'with' guarantees setup and teardown. 
+- `with` guarantees setup and teardown. 
 - Use it for opening a file the file will close even if an exception occurs.
-- Djangos transaction.atomic() is a context manager.
+- Djangos `transaction.atomic()` is a context manager.
 - Ensures all writes commit together or roll back together.
 - Mechanism behind concurrent-edits and duplicate requests.
 
@@ -109,15 +109,15 @@ Pushback Qs
 - Are components in the request/response pipeline.
 - every request passes through them on the way in and in reverse order on the way out.
 - Auth, session management etc.
-- Signals are decoupled event notifications that allow a client to send a signals without know who is listening
+- Signals are decoupled event notifications that allow a client to send a signals without knowing who is listening
 - like invalidating cached document records after a status change in BDR
 
 ### 10. Django ORM - N+1, `select_related` / `prefetch_related`
 - One query fetches N rows
 - Accessing related field lazily on each row makes one more query per row
-- `select_related` fixes this by doing a join on a foreign key in one query
+- `select_related()` fixes this by doing a join on a foreign key in one query
 - Use Django's debug toolbar to identify, look for lots of identical fast queries.
-- `prefetch_related` fixes this for many to many relationships with two queries/
+- `prefetch_related()` fixes this for many to many relationships with two queries/
 - Results are stitched together by key in python. 
 - Using a JOIN on MTM relationship would multiply out each row, a bill with 5 co-sponsors would appear 5 times in result set.
 
@@ -179,3 +179,64 @@ Pushback Qs
 - The result was users no longer had a long manual process for printing specific pages to pdf, and could guarantee the content matched the amendment .docx
 
 ### 6. Team collaboration
+- Building budget bill drafting system where we had a acounting table html file that we needed to present in a word document.
+- There was a preprocessiong step that my colleague was working on and was stuck on because he couldnt make it look like how it does in html in word.
+- I did some research and found that there were html styles that mapped to doc.xml that we could insert into the preprocessed html that would show the document as it looks in html.
+- This helped get him unstuck and ensure the project kept moving forward. The project ended up being a success for usn we were recognised by SVP for the project going live that year when other projects go-live were postponed.
+
+### 7. Missed Deadline
+- While working on the shortened pdf feature ahead of a UAT test cycle
+- The work involved proved to be a little more than I initially thought as I was having trouble with saving the metadata to the amendment asset.
+- When I realised I wasn't going to get it finished in time I flagged it in standup and estimated it would take another day.
+- We let the client know that we would have to push back the UAT release by a day, luckily they didn't have a problem with this.
+- From then on I was more careful when estimating tickets so something like this wouldnt happen again.
+
+### 8. Prioritising under compteting deadlines (can use Team Collab story for this too)
+- A colleague of mine was working on an important rhel 9/python/django upgrade project to upgrade all of the montana project to the latest versions
+- I was working on bug fixes, and new features that were much lower priority than this project.
+- So I often stopped what I was doing to help out where I could with reviews and running the apps locally for testing
+- I would flag this in stand up that I was spending time working on this instead of my tickets to make sure it was ok with the PM
+- It meant that my colleague was unstuck and able to get the infrastructure upgrades done in good time for testing before the upcoming pre-session code freeze.
+
+# DATABASES
+### 1. SQL vs NoSQL
+- SQL/Relational - fixed schema, joins, ACID transactions when integrity matters
+- NoSQL - stored as JSON objects, key-value, designed for flexibility
+- Postgres JSONB blurs the line with schemaless storage in a relational DB
+
+### 2. EXPLAIN ANALYZE ⭐ MUST HAVE
+- EXPLAIN shows query execution plan.
+- EXPLAIN ANALYS does the same but actually executes the query, can compare predicted stats vs real
+- Stats could be different if DB changed since last run
+- Use to find inefficient queries
+
+### 3. Indices and their types
+- B-tree maintains order
+- GIN useful for value with many items - full text tsvector, JSONB. Indexes on tsvector and JSONB columns
+- BRIN useful for naturally ordered data(timestamps) helps with partitioning large datasets.
+- I used and index in saunaguide to index listings on `Index(fields=['-is_featured', 'name'])` so highlight those listing and put them at the top or results
+- Also used index on county column as thats the main filter.
+
+### 4. ACID
+- Atomic - all or nothing
+- Consistent - constraints always hold
+- Isolated - concurrent transaction don't see eachother partial work
+- Durable - a commit survives a crash
+
+### 5. Connection pooling 
+- PgBouncer pools DB connections for short-lived app connections.
+
+# AI
+### Retrievel-Augmented Generation (RAG)
+- LLMs hallucinate and don't know private documents
+- RAG solves this by grounding generated answer in your data.
+- To do this we use semantic search by converting query into a vector embedding
+- The search data is chunked with its own vector embedding using pgverctor
+- Semanticly similar chunks are retrieved and sent as context to the LLM along with a prompt
+- LLM response grounded in your data, and ideally we would have citations to the chunks used as context.
+
+# Cloud
+### On-prem vs cloud (containers)
+- Propylon deploy RPMs to preconfigured servers
+- On cloud we must package up RPMs with dependencies on container image
+- Either way CI for automating tests for git pushes and CD for automated release builds and server deployment.
