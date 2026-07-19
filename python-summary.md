@@ -68,7 +68,7 @@ for t in threads:
 
 ---
 
-### 5. Generators / iterators
+### 5. Iterators -> Generators
 
 **What to say:** *"An iterator is anything you can call `next()` on. A generator — a function using `yield` — is the easy way to write one: it pauses at each yield and resumes where it left off, so values are produced lazily, one at a time, with only one item in memory at once. That's different from a list comprehension, which builds the whole thing upfront."*
 
