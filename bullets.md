@@ -133,3 +133,49 @@ Pushback Qs
 - Can block a worker and risk timing out.
 - API view enqueues job on to broker (can use Redis) returns job id, workers pull tasks off queue when free.
 - If worker crashes mid task, task goes back on to queue to ensure task completes.
+
+# Behavioural
+### 1. Difficult troubleshooting / debugging
+- Worked on a ticket where when a public member was removed from a committee, their uses asset was also being deleted not just their membership to that committee.
+- I began by adding in some logs and reproducing the bug using test data in our test environment.
+- I stepped through the code to trace the flow and found that the front end tracked `removedPublicMembers`
+- The backened removed assets of every UUID on that list, wheras as for other members were removed from the committee.
+- I changed the logic so public members went through the same flow as other member types which resolved the issue.
+- I'm guessing the logic was implemented for public members to be removed from the system and was mistakenly wired into this use case.
+
+### 2. Ownership end-to-end
+- During codification process users export the enrolled bill document to HTML.
+- In some of the bills they use tabbed tables in the word document and our export tools do not support tabbed tables.
+- Users had been manually converting the tabbed tables into html tables and I was tasked with automating this process.
+- After some planning I settled on a design for the solution 
+- I built a doc.xml tabbed table to html conversion API endpoint reusing some conversion code from other projects. 
+- I added a tabbed table detection step based on real examples, to the word addin export process which called the endpoint and passed in doc.xml fragments of the tabbed tables
+- And the word addin stitched the returned html into the exported html, with a fallback to the original export process if anything went wrong.
+- Now when a user exports an enrolled bill containing tabbed tables they no longer need to manually convert them to html tables
+
+### 3. Non-technical / cross-functional stakeholders (disagreement)
+- Some time ago I worked on a budget bill versioning system, there were 6 types each with multiple versions.
+- Drafters found the naming convention confusing and wanted it simplified.
+- I pushed back on the ask as it would require a significant code rewrite close to presession code freeze and put a functioning system at risk.
+- Through more discussions with the client I found that how the bill versions were displayed in the bill document was the main source of confusion
+- I suggested hiding the confusing version number in the bill document untill after session when we would be able to spend the time needed for the rewrite which they agreed to.
+- So I avoided a risky code rewrite close to session and they got part of the simplification they needed.
+
+### 4. Initiative / introducing a technology or process
+- Client tickets lacked proper reprodiuction steps, fullscreenshots, example documents and logs.
+- Caused a lot of unecessary back and forth.
+- I suggested we have the client supply fullscreenshots, local logs, full reproduction steps and example documents in every ticket.
+- I updated the Gitlab bug ticket template, and I ran a training session showing the clients how to access the local logs to add to the ticket.
+- Resulted in much less back and forth on bug tickets as we now nearly always had all the information we needed to fix a bug.
+
+### 5. A difficult decision or tradeoff
+- Users were manually creating shortened pdfs of amendments and wanted an option so automatically generate them.
+- I narrowed it down to two options, running the generation on the server using LibreOffice to generate the PDF from the amendment word doc which would be faster but from experience less certain out the output.
+- Or automate their manual process and use word to generate the pdf and guarantee exact match between .docx and .pdf
+- Given these are legal documents fidelity is very important I decided to go with the word route.
+- I added a new tab to the BDR portal in the broser where they could specify pages of the amendment they wanted printed to pdf.
+- I added a metadata field to the amendment word doc to pass this info to the users local machine as you cannot pass data through the URI we use to open word and the .docx 
+- The word addin read the metadata when the .docx opened and started the pdf print process, saving it to the datastore.
+- The result was users no longer had a long manual process for printing specific pages to pdf, and could guarantee the content matched the amendment .docx
+
+### 6. Team collaboration
