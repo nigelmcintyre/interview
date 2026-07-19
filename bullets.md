@@ -107,8 +107,29 @@ Pushback Qs
 
 ### 9. Middlewares / Signals
 - Are components in the request/response pipeline.
-- every request passes through them in the way in and in reverse order on the way out.
+- every request passes through them on the way in and in reverse order on the way out.
 - Auth, session management etc.
 - Signals are decoupled event notifications that allow a client to send a signals without know who is listening
-- like in validating a cached document records after a status change.
+- like invalidating cached document records after a status change in BDR
 
+### 10. Django ORM - N+1, `select_related` / `prefetch_related`
+- One query fetches N rows
+- Accessing related field lazily on each row makes one more query per row
+- `select_related` fixes this by doing a join on a foreign key in one query
+- Use Django's debug toolbar to identify, look for lots of identical fast queries.
+- `prefetch_related` fixes this for many to many relationships with two queries/
+- Results are stitched together by key in python. 
+- Using a JOIN on MTM relationship would multiply out each row, a bill with 5 co-sponsors would appear 5 times in result set.
+
+### 11. Cache - in-memory vs Redis
+- In memory is fatests but is per process and doesn't survive restart
+- Redis is a network hop slower but is shared across all app servers and persists so is useful when running multiple app servers
+- Need to remember to invalidate cache when entry becomes stale.
+- Has caused issue before in BDR when state was not cleared between drafting sessions and when bill status was updated.
+- Can use caching to reuse query results to improve performance.
+
+### 12. Background tasks - Celery
+- Report generation, file processing should be done outside of request cycle
+- Can block a worker and risk timing out.
+- API view enqueues job on to broker (can use Redis) returns job id, workers pull tasks off queue when free.
+- If worker crashes mid task, task goes back on to queue to ensure task completes.
